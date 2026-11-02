@@ -91,10 +91,12 @@ Nothing in this file may be upgraded without the corresponding code and test.
 | Feature | State |
 |---|---|
 | CLI scanner, rule lint, DB build/verify, quarantine ops, bench | TESTED |
+| Local API backend (`litricd`): loopback HTTP/JSON, bearer auth, scan jobs with live progress + cancellation, analyze, quarantine control, settings/history persistence, RansomShield event ingestion | TESTED — 14 service tests incl. socket-level auth |
 | Native Windows GUI (WinUI 3 / WPF) with all 22 sections | PLANNED — no Windows host to build or test it |
 | Tray icon, notifications, threat explanations UI | PLANNED |
 | Installer / uninstaller | PLANNED |
-| Windows service host (SCM), IPC | PLANNED |
+| Windows service host (SCM wrapper around `litricd`) | PLANNED — backend daemon exists, SCM shim does not |
+| IPC | IMPLEMENTED as loopback HTTP; a named-pipe transport is PLANNED |
 
 ## 7. Windows integration and kernel components
 

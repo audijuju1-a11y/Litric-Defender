@@ -35,6 +35,25 @@ cargo test                      # 81 tests
 ./target/release/litric bench /path/to/corpus --runs 3
 ```
 
+### Local API backend
+
+`litricd` is the service backend the UI is meant to talk to. It is loopback-only,
+requires a bearer token, and caps request bodies at 1 MiB.
+
+```bash
+./target/release/litricd serve --addr 127.0.0.1:8787 --data-dir ./litric-data
+# token is created at ./litric-data/api.token
+curl -H "Authorization: Bearer $(cat ./litric-data/api.token)" \
+     http://127.0.0.1:8787/api/v1/status
+```
+
+Endpoints: `/api/v1/health` (unauthenticated readiness), `/status`, `/scan`,
+`/scans/{id}` (+ `/cancel`), `/analyze`, `/quarantine` (add / list / restore /
+verify / purge-with-confirmation), `/settings`, `/history`, `/ranshield/events`.
+
+`/status` reports `state: "limited"` and `real_time_protection: false` on a host
+without the kernel sensor — it will not display a green shield it has not earned.
+
 Windows cross-check (compiles the portable crates against the Windows target):
 
 ```bash

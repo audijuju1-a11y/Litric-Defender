@@ -17,7 +17,15 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
+
+#[cfg(test)]
+use std::sync::atomic::AtomicU64;
+
+/// Progress callback invoked periodically while a scan runs.
+pub type ProgressFn = Arc<dyn Fn(&ScanSummary) + Send + Sync>;
 
 use crate::engine::{Engine, FileReport, Verdict};
 
@@ -144,6 +152,8 @@ pub enum SkipReason {
 /// Aggregate, honest counters for one scan.
 #[derive(Debug, Clone, Default)]
 pub struct ScanSummary {
+    /// True when the caller cancelled the scan through `Scanner::cancel`.
+    pub cancelled: bool,
     pub files_seen: u64,
     pub files_scanned: u64,
     pub clean: u64,
@@ -208,6 +218,10 @@ pub struct Scanner<'a> {
     pub cache: Option<&'a mut ScanCache>,
     /// Hard stop used by the walker as well as the engine.
     pub max_errors_recorded: usize,
+    /// Called every few dozen files so a service can expose live progress.
+    pub progress: Option<ProgressFn>,
+    /// Cooperative cancellation, checked by the walker.
+    pub cancel: Option<Arc<AtomicBool>>,
 }
 
 impl<'a> Scanner<'a> {
@@ -217,6 +231,8 @@ impl<'a> Scanner<'a> {
             limits,
             cache: None,
             max_errors_recorded: 64,
+            progress: None,
+            cancel: None,
         }
     }
 
@@ -334,8 +350,15 @@ impl<'a> Scanner<'a> {
 
         let mut stack: Vec<PathBuf> = vec![root.to_path_buf()];
         let mut seen_inodes: HashSet<(u64, u64)> = HashSet::new();
+        let mut since_progress: u32 = 0;
 
         while let Some(path) = stack.pop() {
+            if let Some(c) = &self.cancel {
+                if c.load(Ordering::Relaxed) {
+                    summary.cancelled = true;
+                    break;
+                }
+            }
             if let Some(dl) = deadline {
                 if Instant::now() >= dl {
                     summary.skipped_budget += stack.len() as u64 + 1;
@@ -398,9 +421,20 @@ impl<'a> Scanner<'a> {
             }
 
             self.scan_file(&path, &mut summary);
+
+            since_progress += 1;
+            if since_progress >= 64 {
+                since_progress = 0;
+                if let Some(p) = &self.progress {
+                    p(&summary);
+                }
+            }
         }
 
         summary.duration = started.elapsed();
+        if let Some(p) = &self.progress {
+            p(&summary);
+        }
         summary
     }
 
@@ -543,6 +577,41 @@ rule Eicar.Test {
         let mut s = Scanner::new(&e, limits);
         let summary = s.scan_path(&dir);
         assert_eq!(summary.files_scanned, 1);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn cancellation_stops_the_walk() {
+        let dir = temp_dir("cancel");
+        for i in 0..50 {
+            fs::write(dir.join(format!("f{i}.bin")), b"content").unwrap();
+        }
+        let e = engine();
+        let flag = Arc::new(AtomicBool::new(true));
+        let mut s = Scanner::new(&e, ScanLimits::default());
+        s.cancel = Some(flag);
+        let summary = s.scan_path(&dir);
+        assert!(summary.cancelled);
+        assert_eq!(summary.files_scanned, 0);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn progress_callback_sees_counts() {
+        let dir = temp_dir("progress");
+        for i in 0..10 {
+            fs::write(dir.join(format!("f{i}.bin")), b"x").unwrap();
+        }
+        let e = engine();
+        let seen = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let seen2 = seen.clone();
+        let mut s = Scanner::new(&e, ScanLimits::default());
+        s.progress = Some(Arc::new(move |sum: &ScanSummary| {
+            seen2.store(sum.files_scanned, std::sync::atomic::Ordering::Relaxed);
+        }));
+        let summary = s.scan_path(&dir);
+        assert_eq!(summary.files_scanned, 10);
+        assert_eq!(seen.load(std::sync::atomic::Ordering::Relaxed), 10);
         let _ = fs::remove_dir_all(&dir);
     }
 

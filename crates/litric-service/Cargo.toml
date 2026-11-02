@@ -1,0 +1,23 @@
+[package]
+name = "litric-service"
+description = "Litric Defender local API backend: scan jobs, quarantine, RansomShield ingestion"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "litric_service"
+path = "src/lib.rs"
+
+[[bin]]
+name = "litricd"
+path = "src/main.rs"
+
+[dependencies]
+litric-core = { path = "../litric-core" }
+serde.workspace = true
+serde_json.workspace = true
+getrandom.workspace = true
+tiny_http = "0.12"
+clap.workspace = true

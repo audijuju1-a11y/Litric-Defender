@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/litric-core", "crates/litric-cli"]
+members = ["crates/litric-core", "crates/litric-cli", "crates/litric-service"]
 
 [workspace.package]
 version = "0.1.0"

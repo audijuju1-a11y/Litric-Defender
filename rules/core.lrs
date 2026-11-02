@@ -1,0 +1,296 @@
+// ============================================================================
+// Litric Defender — core detection rules
+// ============================================================================
+// Format: Litric Rule Syntax (.lrs). Original to Litric; not YARA.
+//
+// These rules are written by Litric Labs. Where a rule's *idea* comes from
+// published ATT&CK technique behaviour, the technique id is recorded in `mitre`.
+//
+// Authoring guidance:
+//   * Prefer behaviour over single strings; one string is never critical alone.
+//   * Every rule needs a `description` and a `severity`.
+//   * `critical` means: matching this rule alone is enough to quarantine.
+//     Use it only for artefacts with no legitimate use (test files, known C2
+//     markers) or for combinations that are individually conclusive.
+// ============================================================================
+
+// ---------------------------------------------------------------------------
+// Test fixtures. EICAR is the industry-standard AV self-test file: it is not
+// malware, has no payload, and every engine is expected to detect it.
+// ---------------------------------------------------------------------------
+
+rule Test.EICAR {
+    meta:
+        description = "EICAR antivirus test file (industry standard self-test)"
+        family      = "EICAR-Test"
+        severity    = "critical"
+        mitre       = ""
+        author      = "Litric Labs"
+        tags        = "test,eicar"
+    strings:
+        $s1 = "EICAR-STANDARD-ANTIVIRUS-TEST-FILE"
+        $s2 = "X5O!P%@AP[4\\PZX54(P^)7CC)7}$"
+    condition:
+        $s1
+}
+
+// ---------------------------------------------------------------------------
+// Ransomware behaviour embedded in code/scripts
+// ---------------------------------------------------------------------------
+
+rule Ransom.ShadowCopyDestruction {
+    meta:
+        description = "Command line that destroys shadow copies and local recovery points"
+        family      = "Ransomware.Generic"
+        severity    = "critical"
+        mitre       = "T1490"
+        author      = "Litric Labs"
+        tags        = "ransomware,recovery"
+    strings:
+        $vss  = "vssadmin" nocase
+        $del1 = "delete shadows" nocase
+        $del2 = "delete shadowstorage" nocase
+        $wb   = "wbadmin" nocase
+        $cat  = "delete catalog" nocase
+    condition:
+        ($vss and ($del1 or $del2)) or ($wb and $cat)
+}
+
+rule Ransom.RansomNoteText {
+    meta:
+        description = "Multiple phrases from a ransom note in one file"
+        family      = "Ransomware.Generic"
+        severity    = "high"
+        mitre       = "T1486"
+        author      = "Litric Labs"
+        tags        = "ransomware,note"
+    strings:
+        $a = "your files have been encrypted" nocase
+        $b = "your files are encrypted" nocase
+        $c = "to decrypt your files" nocase
+        $d = "decryption key" nocase
+        $e = "send bitcoin" nocase
+        $f = "pay the ransom" nocase
+    condition:
+        2 of them
+}
+
+// ---------------------------------------------------------------------------
+// Defence evasion / tampering
+// ---------------------------------------------------------------------------
+
+rule Tamper.DefenderExclusion {
+    meta:
+        description = "Script or command that adds antivirus exclusions"
+        family      = "DefenseEvasion.DefenderTamper"
+        severity    = "high"
+        mitre       = "T1562.001"
+        author      = "Litric Labs"
+    strings:
+        $mp   = "add-mppreference" nocase
+        $mp2  = "set-mppreference" nocase
+        $excl = "exclusionpath" nocase
+        $excl2 = "exclusionextension" nocase
+        $dis  = "disablerealtimemonitoring" nocase
+        $dis2 = "disablerealtimemonitoring" wide nocase
+    condition:
+        ($mp and ($excl or $excl2)) or ($mp2 and ($dis or $dis2))
+}
+
+rule Tamper.SecurityServiceStop {
+    meta:
+        description = "Attempt to stop or disable a security service"
+        family      = "DefenseEvasion.Tamper"
+        severity    = "high"
+        mitre       = "T1562.001,T1489"
+        author      = "Litric Labs"
+    strings:
+        $win = "windefend" nocase
+        $mp  = "msmpeng" nocase
+        $lit = "litric" nocase
+        $stop = "net stop" nocase
+        $sc   = "sc stop" nocase
+        $cfg  = "sc config" nocase
+        $dis  = "start= disabled" nocase
+    condition:
+        (($win or $mp or $lit) and ($stop or $sc or $cfg or $dis))
+}
+
+// ---------------------------------------------------------------------------
+// Credential access
+// ---------------------------------------------------------------------------
+
+rule Credential.LsassDumpArtefacts {
+    meta:
+        description = "Strings used by LSASS credential dumping tools"
+        family      = "CredentialAccess.LsassDump"
+        severity    = "high"
+        mitre       = "T1003.001"
+        author      = "Litric Labs"
+    strings:
+        $a = "sekurlsa" nocase
+        $b = "mimikatz" nocase
+        $c = "wdigest" nocase
+        $d = "MiniDumpWriteDump" ascii
+        $e = "lsass.exe" nocase
+    condition:
+        $a or $b or ($d and $e)
+}
+
+// ---------------------------------------------------------------------------
+// Execution / delivery chains
+// ---------------------------------------------------------------------------
+
+rule Exec.Squiblydoo {
+    meta:
+        description = "regsvr32 remote scriptlet execution (Squiblydoo)"
+        family      = "Execution.LOLBin"
+        severity    = "high"
+        mitre       = "T1218.010"
+        author      = "Litric Labs"
+    strings:
+        $r = "regsvr32" nocase
+        $i = "/i:http" nocase
+        $s = "scrobj.dll" nocase
+    condition:
+        $r and ($i or $s)
+}
+
+rule Exec.MshtaRemotePayload {
+    meta:
+        description = "mshta executing a remote or inline script"
+        family      = "Execution.LOLBin"
+        severity    = "high"
+        mitre       = "T1218.005"
+        author      = "Litric Labs"
+    strings:
+        $m = "mshta" nocase
+        $h = "http://" nocase
+        $s = "javascript:" nocase
+        $v = "vbscript:" nocase
+    condition:
+        $m and ($s or $v or $h)
+}
+
+rule Exec.PowerShellEncodedCommand {
+    meta:
+        description = "PowerShell launched with an encoded command"
+        family      = "Execution.PowerShell"
+        severity    = "medium"
+        mitre       = "T1059.001,T1027.010"
+        author      = "Litric Labs"
+    strings:
+        $ps  = "powershell" nocase
+        $enc = "-encodedcommand" nocase
+        $enc2 = "-enc " nocase
+        $w    = "-windowstyle hidden" nocase
+        $byp  = "-executionpolicy bypass" nocase
+    condition:
+        $ps and ($enc or $enc2 or $w or $byp)
+}
+
+rule Script.PowerShellDownloadCradle {
+    meta:
+        description = "Script downloads remote content and executes it in memory"
+        family      = "Execution.DownloadCradle"
+        severity    = "high"
+        mitre       = "T1059.001,T1105"
+        author      = "Litric Labs"
+    strings:
+        $dl1 = "downloadstring" nocase
+        $dl2 = "downloadfile" nocase
+        $dl3 = "invoke-webrequest" nocase
+        $dl4 = "net.webclient" nocase
+        $ex1 = "invoke-expression" nocase
+        $ex2 = "iex " nocase
+        $ex3 = "| iex" nocase
+    condition:
+        ($dl1 or $dl2 or $dl3 or $dl4) and ($ex1 or $ex2 or $ex3)
+}
+
+// ---------------------------------------------------------------------------
+// Persistence
+// ---------------------------------------------------------------------------
+
+rule Persist.RunKeyInstaller {
+    meta:
+        description = "Binary that both references a Run key and registers itself there"
+        family      = "Persistence.RunKey"
+        severity    = "medium"
+        mitre       = "T1547.001"
+        author      = "Litric Labs"
+    strings:
+        $run1 = "Software\\Microsoft\\Windows\\CurrentVersion\\Run" wide
+        $run2 = "Software\\Microsoft\\Windows\\CurrentVersion\\Run" ascii
+        $reg  = "RegSetValue" nocase
+        $adv  = "advapi32" nocase
+    condition:
+        ($run1 or $run2) and ($reg or $adv)
+}
+
+rule Persist.ScheduledTaskChain {
+    meta:
+        description = "schtasks persistence combined with a hidden launcher"
+        family      = "Persistence.ScheduledTask"
+        severity    = "medium"
+        mitre       = "T1053.005"
+        author      = "Litric Labs"
+    strings:
+        $sch = "schtasks" nocase
+        $onl = "onlogon" nocase
+        $hid = "-windowstyle hidden" nocase
+        $ps  = "powershell" nocase
+    condition:
+        $sch and ($onl or ($hid and $ps))
+}
+
+// ---------------------------------------------------------------------------
+// Structural / packer
+// ---------------------------------------------------------------------------
+
+rule PE.PackedHighEntropy {
+    meta:
+        description = "Executable with near-random code sections and almost no imports"
+        family      = "Packed.Generic"
+        severity    = "medium"
+        mitre       = "T1027.002"
+        author      = "Litric Labs"
+    strings:
+        $mz = { 4D 5A }
+    condition:
+        $mz and pe.is_pe and pe.code_entropy > 7.2 and pe.imports < 15 and filesize < 20MB
+}
+
+rule PE.EmbeddedExecutableOverlay {
+    meta:
+        description = "PE carrying a second executable in its overlay"
+        family      = "Dropper.EmbeddedPayload"
+        severity    = "high"
+        mitre       = "T1027.009,T1204.002"
+        author      = "Litric Labs"
+    strings:
+        $mz = "This program cannot be run in DOS mode" ascii
+    condition:
+        pe.is_pe and pe.overlay_mz and pe.overlay_size > 2048 and $mz
+}
+
+// ---------------------------------------------------------------------------
+// Network / C2 markers. Narrow, high-signal strings only.
+// ---------------------------------------------------------------------------
+
+rule Network.CobaltStrikeDefaultProfile {
+    meta:
+        description = "Default Cobalt Strike beacon profile metadata markers"
+        family      = "C2.CobaltStrike"
+        severity    = "high"
+        mitre       = "T1071.001"
+        author      = "Litric Labs"
+        reference   = "public reporting on Cobalt Strike default malleable profiles"
+    strings:
+        $a = "beacon.dll" nocase
+        $b = "%s.af" nocase
+        $c = "ReflectiveLoader" ascii
+        $d = "sleeptime" nocase
+    condition:
+        3 of them
+}

@@ -1,0 +1,17 @@
+[package]
+name = "litric-cli"
+description = "Litric Defender command line scanner and engine tooling"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "litric"
+path = "src/main.rs"
+
+[dependencies]
+litric-core = { path = "../litric-core" }
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true

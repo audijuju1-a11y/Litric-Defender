@@ -1,0 +1,31 @@
+[workspace]
+resolver = "2"
+members = ["crates/litric-core", "crates/litric-cli"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+license = "LicenseRef-Proprietary"
+authors = ["Litric Defender Engineering"]
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+getrandom = "0.2"
+chacha20poly1305 = "0.10"
+argon2 = "0.5"
+ed25519-dalek = "2"
+clap = { version = "4", features = ["derive"] }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[profile.bench]
+opt-level = 3
+lto = "thin"

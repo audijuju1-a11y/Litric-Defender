@@ -129,20 +129,49 @@ is what keeps a hostile filename from walking out of the read-only mapping.
 
 ### Host-execution canary
 
-A canary executable (`#!/bin/sh` that appends to a marker file) was placed at the
-launch path. As a control, running it directly created the marker. The marker was
-then deleted and the real `litric` → `litricd` path was driven with:
-
-* no facts (409), user-profile path (400), valid app (501), valid `--wait` (501),
-  valid `--json` (501), valid `--wait --json` (501).
-
-No marker was created in any case, the canary still existed afterwards, and the
-valid requests still produced the `.wsb`. The automated proof lives in
 `crates/litric-cli/tests/safeos_launch_verify.rs`
-(`no_launch_path_executes_the_host_application`).
+(`no_launch_path_executes_the_host_application`) proves both directions in one
+test:
+
+1. **Positive control:** it runs a `#!/bin/sh` canary that appends to a marker,
+   asserts the marker appears, then deletes it.
+2. **Absence:** it drives the real `litric` → `litricd` path for no facts (409),
+   a user-profile path (400), and a valid app with no flags, `--wait`, `--json`
+   and `--wait --json` (501 on this build). After each case it asserts the marker
+   is absent and the canary still exists. The valid requests still write the
+   `.wsb` (4 configs).
+
+Captured with `cargo test -p litric-cli --test safeos_launch_verify
+no_launch_path_executes_the_host_application -- --nocapture` (temporary directory
+trimmed):
+
+```text
+control: marker after direct execution = present
+control: marker removed; launch cases follow
+launch no-facts: exit=Some(2) | ... (HTTP 409): sandbox is not ready: platform_agent: ...
+readiness refusal: marker=absent canary=present
+launch profile-path: exit=Some(2) | ... (HTTP 400): ... refusing to map a user profile ...
+path refusal: marker=absent canary=present
+launch [valid]: exit=Some(2) | ... (HTTP 501): Windows Sandbox launch requires a Windows build...
+valid launch: marker=absent canary=present
+launch [valid, --wait]: exit=Some(2) | ... (HTTP 501) ...
+valid launch: marker=absent canary=present
+launch [valid, --json]: exit=Some(2) | ... (HTTP 501) ...
+valid launch: marker=absent canary=present
+launch [valid, --wait, --json]: exit=Some(2) | ... (HTTP 501) ...
+valid launch: marker=absent canary=present
+prepared configs: 4
+```
+
+Spawn audit of the launcher path: `litric-safeos` has exactly one process
+creation, `Command::new(SystemRoot\System32\WindowsSandbox.exe).arg(config_path)`
+inside `#[cfg(windows)]`; `litric-service` and `litric-cli` have none. The agent's
+`powershell.exe` collects facts and is not on this path. No fallback executes the
+target on the host, so there was no red test to remove.
 
 Writing the `.wsb` before the platform gate is preparation, not execution: it
-touches the config directory only, never the target.
+touches the config directory only, never the target. This test runs on Linux; the
+Windows spawn remains unverified.
 
 What this does **not** prove: that `WindowsSandbox.exe` starts, that the guest
 actually shows no network, or that the mapped folder is read-only to the guest.

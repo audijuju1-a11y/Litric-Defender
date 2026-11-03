@@ -54,5 +54,6 @@ Crate: `crates/litric-safeos` (49 tests). Integrated into the daemon at
 * `launch` must never be reachable without `prepare` (readiness + config), and
   non-Windows builds must return `NotWindows`, never a host fallback.
 * `LAUNCH_VERIFIED_ON_WINDOWS` stays false until the manual checklist passes.
+* The canary test must keep its positive control; "no marker" alone proves nothing.
 * New broker operation? Reuse `safe_file_name` and `hash_file`; never accept a
   path outside `Broker::root`.

@@ -312,25 +312,50 @@ fn no_launch_path_executes_the_host_application() {
     }
     let canary_s = canary.to_str().unwrap();
 
-    // Refused before readiness: the artifact must not be touched.
-    assert_refused(&d.run(&["safeos", "launch", canary_s]), 409, "platform_agent");
+    // (a) Positive control inside the test: the canary really does leave a trace
+    // when executed. Without this, "no marker" would prove nothing.
+    let control = std::process::Command::new(&canary)
+        .status()
+        .expect("run the canary as a control");
+    assert!(control.success(), "control canary did not run");
     assert!(
-        !marker.exists(),
-        "host marker created after readiness refusal"
+        marker.exists(),
+        "control canary did not create its marker; the test is invalid"
     );
+    println!("control: marker after direct execution = present");
+    fs::remove_file(&marker).expect("remove the control marker");
+    println!("control: marker removed; launch cases follow");
 
-    // Refused by the path rule: still no execution.
+    let check_no_trace = |label: &str| {
+        assert!(!marker.exists(), "{label}: host marker was created");
+        assert!(canary.is_file(), "{label}: the canary was removed");
+        println!("{label}: marker=absent canary=present");
+    };
+
+    // (b) Refused before readiness: the artifact must not be touched.
+    let out = d.run(&["safeos", "launch", canary_s]);
+    println!(
+        "launch no-facts: exit={:?} | {}",
+        out.status.code(),
+        String::from_utf8_lossy(&out.stderr).lines().next().unwrap_or("")
+    );
+    assert_refused(&out, 409, "platform_agent");
+    check_no_trace("readiness refusal");
+
+    // (c) Refused by the path rule: still no execution.
     assert_eq!(d.report(&good_facts()), 200);
-    assert_refused(
-        &d.run(&["safeos", "launch", r"C:\Users\alice\canary.exe"]),
-        400,
-        "user profile",
+    let out = d.run(&["safeos", "launch", r"C:\Users\alice\canary.exe"]);
+    println!(
+        "launch profile-path: exit={:?} | {}",
+        out.status.code(),
+        String::from_utf8_lossy(&out.stderr).lines().next().unwrap_or("")
     );
-    assert!(!marker.exists(), "host marker created after path refusal");
+    assert_refused(&out, 400, "user profile");
+    check_no_trace("path refusal");
 
-    // Valid request, including both CLI variants: readiness and .wsb preparation
-    // succeed, then the compile-time platform gate refuses. The target itself is
-    // never executed on the host.
+    // (d) Valid request, including both CLI variants: readiness and .wsb
+    // preparation succeed, then the compile-time platform gate refuses. The
+    // target itself is never executed on the host.
     let cases: [&[&str]; 4] = [
         &["safeos", "launch", canary_s],
         &["safeos", "launch", canary_s, "--wait"],
@@ -338,8 +363,14 @@ fn no_launch_path_executes_the_host_application() {
         &["safeos", "launch", canary_s, "--wait", "--json"],
     ];
     for args in cases {
-        assert_refused(&d.run(args), 501, "requires a Windows build");
-        assert!(!marker.exists(), "host marker created by {args:?}");
+        let out = d.run(args);
+        println!(
+            "launch {args:?}: exit={:?} | {}",
+            out.status.code(),
+            String::from_utf8_lossy(&out.stderr).lines().next().unwrap_or("")
+        );
+        assert_refused(&out, 501, "requires a Windows build");
+        check_no_trace("valid launch");
     }
 
     assert!(canary.is_file(), "the canary must not be removed");
@@ -350,4 +381,5 @@ fn no_launch_path_executes_the_host_application() {
         configs >= 1,
         "a valid request should have prepared a .wsb before the platform gate"
     );
+    println!("prepared configs: {configs}");
 }

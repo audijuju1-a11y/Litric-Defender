@@ -27,8 +27,8 @@ Run the daemon:
 
 ## Test counts at last verification
 
-83 core + 19 service + 8 client + 12 end-to-end + 39 safeos = 161. Re-run and
-update this line; do not assume.
+83 core + 19 service + 8 client + 12 cli end-to-end + 40 safeos + 7 agent +
+3 agent end-to-end = 172. Re-run and update this line; do not assume.
 
 ## Environment constraints
 

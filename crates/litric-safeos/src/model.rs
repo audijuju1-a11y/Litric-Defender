@@ -58,6 +58,9 @@ pub struct HostFacts {
     pub free_disk_mb: u64,
     /// Existing WinNAT networks. WinNAT supports one; Litric will not remove one.
     pub existing_nat_networks: u32,
+    /// False when the agent could not query WinNAT (usually: not elevated).
+    /// A failed query is not evidence of zero NAT networks.
+    pub nat_query_ok: bool,
     pub wsl_switches: u32,
     pub docker_switches: u32,
 }
@@ -75,6 +78,7 @@ impl HostFacts {
             total_ram_mb: 0,
             free_disk_mb: 0,
             existing_nat_networks: 0,
+            nat_query_ok: false,
             wsl_switches: 0,
             docker_switches: 0,
         }
@@ -106,6 +110,10 @@ impl HostFacts {
             total_ram_mb: num("total_ram_mb").unwrap_or(0),
             free_disk_mb: num("free_disk_mb").unwrap_or(0),
             existing_nat_networks: num("existing_nat_networks").unwrap_or(0) as u32,
+            nat_query_ok: value
+                .get("nat_query_ok")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
             wsl_switches: num("wsl_switches").unwrap_or(0) as u32,
             docker_switches: num("docker_switches").unwrap_or(0) as u32,
         }
@@ -216,6 +224,16 @@ impl Readiness {
 
         // WinNAT supports a single NAT network per host. If one already exists,
         // Litric must not remove or reconfigure it, so the gateway stays off.
+        // An unreadable NAT state is treated as a conflict, never as "none".
+        if !facts.nat_query_ok {
+            blockers.push(Blocker {
+                component: "network_gateway",
+                reason: "WinNAT state could not be queried (the agent usually needs elevation)".into(),
+                remediation: "run the agent elevated if you want gateway eligibility evaluated; \
+                              otherwise isolation stays offline"
+                    .into(),
+            });
+        }
         let nat_conflict = facts.existing_nat_networks > 0;
         if nat_conflict {
             blockers.push(Blocker {
@@ -232,7 +250,11 @@ impl Readiness {
             windows,
             hyperv_usable: build_ok && virt_ok && facts.hyperv_feature_present && ram_ok && vm_disk_ok,
             sandbox_usable: build_ok && virt_ok && facts.sandbox_feature_present && ram_ok && sandbox_disk_ok,
-            gateway_usable: build_ok && virt_ok && facts.hyperv_feature_present && !nat_conflict,
+            gateway_usable: build_ok
+                && virt_ok
+                && facts.hyperv_feature_present
+                && facts.nat_query_ok
+                && !nat_conflict,
             blockers,
         }
     }
@@ -310,6 +332,7 @@ mod tests {
             total_ram_mb: 16 * 1024,
             free_disk_mb: 100 * 1024,
             existing_nat_networks: 0,
+            nat_query_ok: true,
             wsl_switches: 1,
             docker_switches: 1,
         }
@@ -354,6 +377,15 @@ mod tests {
         let r = Readiness::evaluate(&f);
         assert!(!r.gateway_usable);
         assert!(r.sandbox_usable);
+        assert!(r.blockers.iter().any(|b| b.component == "network_gateway"));
+    }
+
+    #[test]
+    fn failed_nat_query_blocks_gateway_instead_of_assuming_zero() {
+        let mut f = good();
+        f.nat_query_ok = false;
+        let r = Readiness::evaluate(&f);
+        assert!(!r.gateway_usable);
         assert!(r.blockers.iter().any(|b| b.component == "network_gateway"));
     }
 

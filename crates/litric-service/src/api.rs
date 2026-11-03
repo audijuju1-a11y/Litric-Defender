@@ -102,7 +102,8 @@ pub fn dispatch(state: &AppState, method: &str, url: &str, body: &[u8]) -> ApiRe
         ("GET", ["api", "v1", "history"]) => ok(history_json(state)),
         ("GET", ["api", "v1", "ranshield"]) => ok(ranshield_json(state)),
         ("POST", ["api", "v1", "ranshield", "events"]) => ranshield_events(state, body),
-        ("GET", ["api", "v1", "safeos", "status"]) => ok(safeos_status()),
+        ("GET", ["api", "v1", "safeos", "status"]) => ok(safeos_status(state)),
+        ("POST", ["api", "v1", "safeos", "host-facts"]) => safeos_host_facts(state, body),
         ("POST", ["api", "v1", "safeos", "assess"]) => safeos_assess(state, body),
         _ => not_found(format!("no route for {method} {path}")),
     }
@@ -136,6 +137,8 @@ pub fn capabilities() -> Value {
         "safeos_file_broker": true,
         "safeos_session_journal": true,
         "safeos_windows_sandbox_config": true,
+        "safeos_host_agent": true,
+        "safeos_host_facts_ingest": true,
         "safeos_windows_sandbox_launch": false,
         "safeos_hyperv_backend": false,
         "safeos_network_gateway": false
@@ -401,21 +404,58 @@ fn analyze(state: &AppState, body: &[u8]) -> ApiResponse {
 
 /// Honest SafeOS capability report. No platform agent exists in this build, so
 /// every Windows-only backend reports unavailable rather than "assumed fine".
-fn safeos_status() -> Value {
-    let facts = HostFacts::unknown();
+fn safeos_status(state: &AppState) -> Value {
+    let facts = state
+        .host_facts
+        .lock()
+        .ok()
+        .and_then(|f| f.clone())
+        .unwrap_or_else(HostFacts::unknown);
     let readiness = Readiness::evaluate(&facts);
     json!({
-        "state": "unavailable",
+        "state": if facts.known { "facts_reported" } else { "unavailable" },
         "host_facts_known": facts.known,
-        "platform_agent": "not implemented: no Windows platform agent reports host facts",
+        "platform_agent": if facts.known {
+            "host facts received"
+        } else {
+            "no host facts received; run `litric-agent` on Windows"
+        },
+        "host_facts": if facts.known {
+            json!({
+                "windows_edition": facts.windows_edition,
+                "windows_build": facts.windows_build,
+                "virtualization_enabled": facts.virtualization_enabled,
+                "hyperv_feature_present": facts.hyperv_feature_present,
+                "sandbox_feature_present": facts.sandbox_feature_present,
+                "total_ram_mb": facts.total_ram_mb,
+                "free_disk_mb": facts.free_disk_mb,
+                "existing_nat_networks": facts.existing_nat_networks,
+                "nat_query_ok": facts.nat_query_ok,
+                "wsl_switches": facts.wsl_switches,
+                "docker_switches": facts.docker_switches,
+            })
+        } else {
+            Value::Null
+        },
+        // `host_supported` is what the Windows host can do. `available` is what
+        // this build can actually launch; it stays false until a launcher exists.
         "backends": backend_status(&facts)
             .iter()
-            .map(|b| json!({
-                "kind": b.kind,
-                "available": b.available,
-                "reason": b.reason,
-                "requires_windows": b.requires_windows,
-            }))
+            .map(|b| {
+                let host_supported = b.available;
+                let usable = host_supported && litric_safeos::sandbox::LAUNCH_IMPLEMENTED;
+                json!({
+                    "kind": b.kind,
+                    "available": usable,
+                    "host_supported": host_supported,
+                    "reason": if host_supported && !usable {
+                        format!("{}; the launcher is not implemented in this build", b.reason)
+                    } else {
+                        b.reason.clone()
+                    },
+                    "requires_windows": b.requires_windows,
+                })
+            })
             .collect::<Vec<_>>(),
         "blockers": readiness
             .blockers
@@ -430,6 +470,35 @@ fn safeos_status() -> Value {
         "hyperv_backend_implemented": false,
         "network_gateway_implemented": false,
     })
+}
+
+/// Accepts a read-only host report from `litric-agent`.
+fn safeos_host_facts(state: &AppState, body: &[u8]) -> ApiResponse {
+    let v: Value = match serde_json::from_slice(body) {
+        Ok(v) => v,
+        Err(e) => return bad_request(format!("invalid JSON body: {e}")),
+    };
+    let facts = HostFacts::from_json(&v);
+    if !facts.known {
+        return bad_request("host report must set known=true");
+    }
+    if facts.windows_edition.trim().is_empty() {
+        return bad_request("host report must include windows_edition");
+    }
+    if facts.windows_build == 0 {
+        return bad_request("host report must include windows_build");
+    }
+    if facts.total_ram_mb == 0 {
+        return bad_request("host report must include total_ram_mb");
+    }
+    if facts.existing_nat_networks > 64 {
+        return bad_request("existing_nat_networks looks implausible; refusing the report");
+    }
+    match state.host_facts.lock() {
+        Ok(mut slot) => *slot = Some(facts),
+        Err(e) => return err(500, format!("host facts lock poisoned: {e}")),
+    }
+    ok(safeos_status(state))
 }
 
 /// Classifies an application and returns the fail-closed execution decision.

@@ -1,0 +1,24 @@
+[package]
+name = "litric-agent"
+description = "Litric SafeOS Windows platform agent: read-only host fact collection"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "litric_agent"
+path = "src/lib.rs"
+
+[[bin]]
+name = "litric-agent"
+path = "src/main.rs"
+
+[dependencies]
+litric-safeos = { path = "../litric-safeos" }
+serde_json.workspace = true
+clap.workspace = true
+
+[dev-dependencies]
+litric-core = { path = "../litric-core" }
+litric-service = { path = "../litric-service" }

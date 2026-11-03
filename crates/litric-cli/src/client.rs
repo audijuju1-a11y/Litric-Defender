@@ -614,21 +614,30 @@ pub fn render_safeos_status(v: &Value) -> String {
     s.push_str(&format!(
         "host facts   : {}\n",
         if v["host_facts_known"].as_bool().unwrap_or(false) {
-            "reported by agent"
+            format!(
+                "{} build {}",
+                v["host_facts"]["windows_edition"].as_str().unwrap_or("?"),
+                v["host_facts"]["windows_build"].as_u64().unwrap_or(0)
+            )
         } else {
-            "NOT COLLECTED (no platform agent in this build)"
+            "NOT COLLECTED (run litric-agent on Windows)".to_string()
         }
     ));
     if let Some(backends) = v["backends"].as_array() {
         s.push_str("backends:\n");
         for b in backends {
             s.push_str(&format!(
-                "  {:<18} {}  ({})\n",
+                "  {:<18} {:<12} host supports: {:<3} ({})\n",
                 b["kind"].as_str().unwrap_or("?"),
                 if b["available"].as_bool().unwrap_or(false) {
-                    "available  "
+                    "available"
                 } else {
                     "UNAVAILABLE"
+                },
+                if b["host_supported"].as_bool().unwrap_or(false) {
+                    "yes"
+                } else {
+                    "no"
                 },
                 b["reason"].as_str().unwrap_or("")
             ));

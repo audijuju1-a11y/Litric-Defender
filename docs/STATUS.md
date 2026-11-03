@@ -134,7 +134,8 @@ BLOCKED in this environment (Linux, no Hyper-V/WFP/WDK).
 
 | Feature | State | Evidence / notes |
 |---|---|---|
-| Host facts model + readiness (RAM/disk/build/virtualization/NAT conflict) | TESTED | `model.rs`, 7 tests; facts must come from an agent, never guessed |
+| Host facts model + readiness (RAM/disk/build/virtualization/NAT conflict) | TESTED | `model.rs`, 8 tests; facts must come from an agent, never guessed |
+| Windows platform agent (read-only collection + daemon ingest) | TESTED offline; Windows probe compile-check only | `litric-agent`, 7 unit + 3 e2e; collector not executed on a real Windows host here |
 | Risk classification L0-L3 with evidence and confidence | TESTED | `risk.rs`, 6 tests; unsigned ≠ malicious |
 | Fail-closed execution policy | TESTED | `policy.rs`, 6 tests; non-trusted levels can never run on host |
 | Secure file broker: staged import/export, SHA-256 verify, approval, scan gate | TESTED | `broker.rs`, 9 tests incl. symlink/traversal/ADS/overwrite |

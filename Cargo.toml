@@ -5,6 +5,7 @@ members = [
     "crates/litric-cli",
     "crates/litric-service",
     "crates/litric-safeos",
+    "crates/litric-agent",
 ]
 
 [workspace.package]

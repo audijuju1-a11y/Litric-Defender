@@ -33,6 +33,18 @@ Crate: `crates/litric-safeos` (39 tests). Integrated into the daemon at
 4. Resource governor enforcement: PLANNED (thresholds exist, enforcement does not).
 5. Installer/uninstaller and object rollback records: PLANNED.
 
+## Agent and facts ingest (added after the first cut)
+
+* `crates/litric-agent` collects read-only host facts on Windows and POSTs them
+  to `/api/v1/safeos/host-facts`; see `docs/MEMORY/agent.md`.
+* `AppState.host_facts: Mutex<Option<HostFacts>>` holds the last report.
+* `safeos_status` reports `host_supported` (host capability) separately from
+  `available` (what this build can launch). `available` stays false for every
+  execution backend because no launcher exists.
+* `safeos_assess` still passes `BackendSet::none()`; facts do not grant isolation.
+* `nat_query_ok=false` blocks the gateway; do not treat an unreadable NAT state
+  as zero.
+
 ## Where to change what
 
 * New backend? Add to `BackendKind`/`backend_status`, extend `BackendSet`, add a

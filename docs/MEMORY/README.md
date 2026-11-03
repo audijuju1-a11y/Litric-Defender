@@ -10,7 +10,8 @@ Read in this order:
 3. `service.md` — `litricd` API, auth, jobs, persistence.
 4. `cli.md` — `litric` client, flags, exit codes, error messages.
 5. `safeos.md` — isolation policy, broker, journal, sandbox config, blockers.
-6. `rules.md` — `.lrs` rule language and how to add a rule.
+6. `agent.md` — Windows platform agent, facts ingest, read-only guarantees.
+7. `rules.md` — `.lrs` rule language and how to add a rule.
 
 Rules of engagement for any future change:
 

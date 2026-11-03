@@ -33,6 +33,7 @@ use std::time::Instant;
 use litric_core::engine::Engine;
 use litric_core::quarantine::QuarantineVault;
 use litric_core::ranshield::RansomShield;
+use litric_safeos::model::HostFacts;
 
 use crate::jobs::JobManager;
 use crate::store::Store;
@@ -44,6 +45,9 @@ pub struct AppState {
     pub jobs: Arc<JobManager>,
     pub store: Arc<Mutex<Store>>,
     pub ranshield: Arc<Mutex<RansomShield>>,
+    /// Last facts reported by the platform agent. `None` means "not collected",
+    /// which SafeOS treats as every backend unavailable.
+    pub host_facts: Mutex<Option<HostFacts>>,
     pub token: String,
     pub data_dir: PathBuf,
     pub started: Instant,
@@ -67,6 +71,7 @@ impl AppState {
             jobs: Arc::new(JobManager::new()),
             store: Arc::new(Mutex::new(store)),
             ranshield: Arc::new(Mutex::new(RansomShield::new(Default::default()))),
+            host_facts: Mutex::new(None),
             token,
             data_dir: data_dir.to_path_buf(),
             started: Instant::now(),

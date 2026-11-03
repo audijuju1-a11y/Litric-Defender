@@ -28,8 +28,13 @@ Run the daemon:
 
 ## Test counts at last verification
 
-90 core + 21 service + 8 client + 19 cli end-to-end + 51 safeos + 7 agent +
-5 agent end-to-end = 201. Re-run and update this line; do not assume.
+90 core + 21 service + 8 client + 21 cli integration + 51 safeos + 7 agent +
+5 agent end-to-end = 203. Re-run and update this line; do not assume.
+
+That count was produced on Linux x86_64 (POSIX host). Windows execution of the
+suite is UNPROVEN: the Windows target is cross-compiled and clippy-checked only.
+`tests/platform_evidence.rs` enforces the POSIX-only markers and the gate/doc
+`test_evidence` block.
 
 Quarantine lifecycle and recovery tests live in `litric-core` (`quarantine::tests::
 recovery_*`, `double_restore_*`, `corrupted_entry_*`) and in the CLI end-to-end

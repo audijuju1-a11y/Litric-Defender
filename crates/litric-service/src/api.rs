@@ -152,6 +152,28 @@ pub fn capabilities() -> Value {
     })
 }
 
+/// Evidence provenance shared by the gate and the mechanical platform checks.
+/// The suite has only been executed on this POSIX host; changing these values
+/// requires a recorded Windows run, not inference from a cross-compile.
+pub const SUITE_EXECUTED_ON: &str = "Linux x86_64 (POSIX host)";
+pub const WINDOWS_SUITE_EXECUTION: &str = "UNPROVEN";
+pub const WINDOWS_SUITE_REASON: &str =
+    "No recorded run of the test suite on Windows; the Windows target is cross-compiled and clippy-checked only.";
+
+/// Tests excluded on Windows because they use POSIX-only process/file semantics.
+/// Every id must also carry a `// POSIX-ONLY-TEST:` marker in its source file;
+/// `platform_evidence` fails if this list, the markers or the readiness doc drift.
+pub const POSIX_ONLY_TESTS: &[&str] = &[
+    "litric-agent/tests/agent_e2e.rs::launch_refuses_politely_without_a_windows_launcher",
+    "litric-cli/tests/safeos_launch_verify.rs::a_valid_request_writes_a_locked_down_config_and_stops_at_the_platform_gate",
+    "litric-cli/tests/safeos_launch_verify.rs::every_readiness_blocker_is_named_and_reevaluated",
+    "litric-cli/tests/safeos_launch_verify.rs::no_launch_path_executes_the_host_application",
+    "litric-cli/tests/safeos_launch_verify.rs::unsafe_paths_are_rejected_with_stable_messages",
+    "litric-core/src/scan.rs::hard_links_are_deduplicated",
+    "litric-safeos/src/broker.rs::symlinks_are_refused",
+    "litric-safeos/src/sandbox.rs::a_file_name_with_separators_cannot_escape_the_mapping",
+];
+
 /// Fail-closed capability report. Anything without real evidence is UNPROVEN,
 /// BLOCKED or NOT_IMPLEMENTED; nothing may be READY just because it compiles.
 pub fn readiness_json() -> Value {
@@ -160,33 +182,62 @@ pub fn readiness_json() -> Value {
     } else {
         "BLOCKED"
     };
+    let caps = json!({
+        "on_demand_scan": { "state": "READY", "evidence": "automated tests on Linux x86_64 (POSIX host)" },
+        "quarantine": { "state": "READY", "evidence": "lifecycle and recovery tests on Linux x86_64 (POSIX host); Windows filesystem semantics are separate and UNPROVEN" },
+        "safeos_risk_assessment": { "state": "READY", "evidence": "automated tests on Linux x86_64 (POSIX host)" },
+        "safeos_fail_closed_policy": { "state": "READY", "evidence": "automated tests on Linux x86_64 (POSIX host)" },
+        "safeos_sandbox_config": { "state": "READY", "evidence": "automated .wsb tests on Linux x86_64 (POSIX host)" },
+        "safeos_sandbox_launch": {
+            "state": launch,
+            "reason": if litric_safeos::sandbox::LAUNCH_IMPLEMENTED {
+                "compiled for Windows but never run on a real Windows 11 host"
+            } else {
+                "requires a Windows build"
+            }
+        },
+        "safeos_sandbox_guest_runtime": {
+            "state": "UNPROVEN",
+            "reason": "no guest run has observed networking, clipboard or read-only mapping"
+        },
+        "test_suite_windows_execution": {
+            "state": WINDOWS_SUITE_EXECUTION,
+            "reason": WINDOWS_SUITE_REASON
+        },
+        "quarantine_windows_filesystem_semantics": {
+            "state": "UNPROVEN",
+            "reason": "hard_link/create_new publish and occupied-destination behavior are portable APIs but have not been executed on Windows"
+        },
+        "safeos_hyperv_backend": { "state": "NOT_IMPLEMENTED" },
+        "safeos_network_gateway": { "state": "NOT_IMPLEMENTED" },
+        "safeos_behavior_monitoring": { "state": "NOT_IMPLEMENTED" },
+        "safeos_ui": { "state": "NOT_IMPLEMENTED" },
+        "safeos_installer": { "state": "NOT_IMPLEMENTED" },
+        "safeos_vm_recovery": { "state": "UNPROVEN", "reason": "journal planner only; no VHDX recovery" }
+    });
+    let mut unverified = serde_json::Map::new();
+    for (name, cap) in caps.as_object().expect("capabilities object") {
+        let state = cap["state"].as_str().unwrap_or("UNPROVEN");
+        if state == "READY" {
+            continue;
+        }
+        let states = if name == "safeos_sandbox_launch" {
+            json!(["BLOCKED", "UNPROVEN"])
+        } else {
+            json!([state])
+        };
+        unverified.insert(name.clone(), states);
+    }
     json!({
         "production_ready": false,
         "verdict": "NOT PRODUCTION READY",
-        "capabilities": {
-            "on_demand_scan": { "state": "READY", "evidence": "automated tests" },
-            "quarantine": { "state": "READY", "evidence": "lifecycle and recovery tests" },
-            "safeos_risk_assessment": { "state": "READY", "evidence": "automated tests" },
-            "safeos_fail_closed_policy": { "state": "READY", "evidence": "automated tests" },
-            "safeos_sandbox_config": { "state": "READY", "evidence": "automated .wsb tests" },
-            "safeos_sandbox_launch": {
-                "state": launch,
-                "reason": if litric_safeos::sandbox::LAUNCH_IMPLEMENTED {
-                    "compiled for Windows but never run on a real Windows 11 host"
-                } else {
-                    "requires a Windows build"
-                }
-            },
-            "safeos_sandbox_guest_runtime": {
-                "state": "UNPROVEN",
-                "reason": "no guest run has observed networking, clipboard or read-only mapping"
-            },
-            "safeos_hyperv_backend": { "state": "NOT_IMPLEMENTED" },
-            "safeos_network_gateway": { "state": "NOT_IMPLEMENTED" },
-            "safeos_behavior_monitoring": { "state": "NOT_IMPLEMENTED" },
-            "safeos_ui": { "state": "NOT_IMPLEMENTED" },
-            "safeos_installer": { "state": "NOT_IMPLEMENTED" },
-            "safeos_vm_recovery": { "state": "UNPROVEN", "reason": "journal planner only; no VHDX recovery" }
+        "capabilities": caps,
+        "test_evidence": {
+            "suite_executed_on": SUITE_EXECUTED_ON,
+            "windows_suite_execution": WINDOWS_SUITE_EXECUTION,
+            "windows_suite_reason": WINDOWS_SUITE_REASON,
+            "posix_only_tests": POSIX_ONLY_TESTS,
+            "unverified_capabilities": unverified
         }
     })
 }
@@ -1076,6 +1127,23 @@ rule Eicar.Test {
                 assert!(tested.contains(&id.as_str()), "unproven READY: {id}");
             }
         }
+
+        assert_eq!(caps["test_suite_windows_execution"]["state"], "UNPROVEN");
+        assert_eq!(
+            caps["quarantine_windows_filesystem_semantics"]["state"],
+            "UNPROVEN"
+        );
+        assert_eq!(
+            r.body["test_evidence"]["windows_suite_execution"],
+            "UNPROVEN"
+        );
+        assert!(
+            r.body["test_evidence"]["posix_only_tests"]
+                .as_array()
+                .map(|t| t.len())
+                .unwrap_or(0)
+                >= 7
+        );
 
         let status = dispatch(&state, "GET", "/api/v1/status", b"");
         assert_eq!(status.body["readiness"]["production_ready"], false);

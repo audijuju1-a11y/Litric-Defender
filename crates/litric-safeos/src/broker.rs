@@ -446,6 +446,9 @@ mod tests {
         ));
     }
 
+    // POSIX-ONLY-TEST: litric-safeos/src/broker.rs::symlinks_are_refused
+    // Windows counterpart UNPROVEN: Windows symlink creation needs privileges
+    // and the refusal path has not been executed there.
     #[cfg(unix)]
     #[test]
     fn symlinks_are_refused() {

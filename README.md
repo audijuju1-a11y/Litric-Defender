@@ -28,7 +28,7 @@ project is early, and the status file lists what is *not* built.
 
 ```bash
 cargo build --release
-cargo test                      # 201 tests
+cargo test                      # 203 tests (Linux x86_64; Windows test execution UNPROVEN)
 ./target/release/litric rules lint rules
 ./target/release/litric scan /path/to/scan
 ./target/release/litric analyze suspicious.exe
@@ -83,6 +83,10 @@ Windows cross-check (compiles the portable crates against the Windows target):
 rustup target add x86_64-pc-windows-gnu
 cargo check --target x86_64-pc-windows-gnu -p litric-core
 ```
+
+`cargo check` only compiles the Windows target; it does not run tests. The
+readiness doc records that the passing suite was executed on Linux and lists the
+POSIX-only tests whose Windows counterparts are still UNPROVEN.
 
 ## Measured baseline
 

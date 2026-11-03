@@ -3,9 +3,10 @@
 //! Every case goes through the real `litric` binary -> real `litricd` HTTP API.
 //! Facts are reported exactly the way `litric-agent` reports them.
 //!
-//! Windows-only by nature: on a Windows build the "ready" case would spawn a real
+//! Non-Windows by nature: on a Windows build the "ready" case would spawn a real
 //! sandbox, so this file is not compiled there. The launcher itself and its gates
-//! are still compiled for Windows by `cargo check --all-targets`.
+//! are still compiled for Windows by `cargo check --all-targets`. Every test here
+//! carries a POSIX-ONLY-TEST marker checked by `platform_evidence`.
 
 #![cfg(not(windows))]
 
@@ -150,6 +151,8 @@ fn assert_refused(out: &Output, status: u16, needle: &str) {
     );
 }
 
+// POSIX-ONLY-TEST: litric-cli/tests/safeos_launch_verify.rs::every_readiness_blocker_is_named_and_reevaluated
+// Windows counterpart UNPROVEN: this drives the non-Windows launch gate.
 #[test]
 fn every_readiness_blocker_is_named_and_reevaluated() {
     let d = start("blockers");
@@ -202,6 +205,8 @@ fn every_readiness_blocker_is_named_and_reevaluated() {
     );
 }
 
+// POSIX-ONLY-TEST: litric-cli/tests/safeos_launch_verify.rs::unsafe_paths_are_rejected_with_stable_messages
+// Windows counterpart UNPROVEN: this is the non-Windows launch/path rule set.
 #[test]
 fn unsafe_paths_are_rejected_with_stable_messages() {
     let d = start("paths");
@@ -229,6 +234,9 @@ fn unsafe_paths_are_rejected_with_stable_messages() {
     let _ = app;
 }
 
+// POSIX-ONLY-TEST: litric-cli/tests/safeos_launch_verify.rs::a_valid_request_writes_a_locked_down_config_and_stops_at_the_platform_gate
+// Windows counterpart UNPROVEN: the 501 platform-gate expectation and .wsb path
+// assertions are only executed on this POSIX host.
 #[test]
 fn a_valid_request_writes_a_locked_down_config_and_stops_at_the_platform_gate() {
     let d = start("valid");
@@ -300,6 +308,9 @@ fn a_valid_request_writes_a_locked_down_config_and_stops_at_the_platform_gate() 
     assert_eq!(sandbox["available"], false);
 }
 
+// POSIX-ONLY-TEST: litric-cli/tests/safeos_launch_verify.rs::no_launch_path_executes_the_host_application
+// Windows counterpart UNPROVEN: the positive control is a /bin/sh script made
+// executable with POSIX mode bits.
 #[test]
 fn no_launch_path_executes_the_host_application() {
     let d = start("no-host-exec");

@@ -22,7 +22,9 @@ Behaviour to preserve:
 * `/health` is the only unauthenticated route; everything else needs the bearer.
 * `/readiness` is deliberately 503 with `production_ready:false`; `status` embeds
   it, `health` reports `protection_ready:false`, and `assess` embeds
-  `system_readiness`. Never mark the guest runtime ready without a guest run.
+  `system_readiness`. `test_evidence` records that the suite ran on Linux and that
+  Windows execution and NTFS quarantine semantics are UNPROVEN. Never mark the
+  guest runtime ready without a guest run.
 * `status` reports `limited` and `real_time_protection: false`; never "protected"
   without a real-time sensor.
 * Quarantine restore/purge map `VaultError::NotFound` to 404 and

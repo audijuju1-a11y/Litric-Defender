@@ -225,6 +225,8 @@ fn launch_is_refused_until_facts_are_reported() {
     assert!(body["error"].as_str().unwrap().contains("not ready"));
 }
 
+// POSIX-ONLY-TEST: litric-agent/tests/agent_e2e.rs::launch_refuses_politely_without_a_windows_launcher
+// Windows counterpart UNPROVEN: this asserts the non-Windows 501 launch refusal.
 #[cfg(not(windows))]
 #[test]
 fn launch_refuses_politely_without_a_windows_launcher() {

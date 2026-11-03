@@ -58,7 +58,8 @@ Nothing in this file may be upgraded without the corresponding code and test.
 | Header authenticated as AAD (tamper detection) | TESTED | header-bit-flip test |
 | Quarantine lifecycle: encrypt → verify → index → remove original | TESTED | temp decrypt/hash before touching source; conservative index row if interrupted |
 | List / inspect / integrity audit (`verify_all`) | TESTED | every entry decrypted and re-hashed; failures reported, not hidden |
-| Restore: refuse overwrite, temp → hash → rename → re-read | TESTED | existing bytes unchanged; double restore and restore-after-purge return `NotFound` |
+| Restore: refuse overwrite, temp → close → atomic publish → re-read | TESTED | existing bytes unchanged; double restore and restore-after-purge return `NotFound` |
+| Windows/NTFS no-clobber and occupied-destination semantics | UNPROVEN | portable `hard_link`/`create_new` code is cross-compiled but the suite has not run on Windows |
 | Purge with explicit confirmation and journal | TESTED | 404 for unknown/already-purged; never a silent success |
 | Crash recovery from `ops.jsonl` (`intent`/`done`, reconcile on open) | TESTED | interrupted quarantine/restore/purge tests; conflicting target preserved; orphan entry re-indexed; idempotent |
 | Native path/ADS/metadata preservation | PARTIALLY IMPLEMENTED | POSIX mode/mtime and NTFS ADS not yet preserved |
@@ -92,7 +93,7 @@ Nothing in this file may be upgraded without the corresponding code and test.
 
 | Feature | State |
 |---|---|
-| CLI client (`litric`): status / scan with progress / cancel / analyze / quarantine lifecycle (add, list, verify, restore, purge) over the daemon API, with `--local` standalone escape hatch | TESTED — 19 end-to-end tests (15 daemon + 4 SafeOS launch) invoke the real binary against a real daemon |
+| CLI client (`litric`): status / scan with progress / cancel / analyze / quarantine lifecycle (add, list, verify, restore, purge) over the daemon API, with `--local` standalone escape hatch | TESTED — 15 daemon end-to-end + 4 SafeOS launch + 2 platform evidence integration tests |
 | Rule lint, DB build/verify, bench (in-process engine tooling) | TESTED |
 | Local API backend (`litricd`): loopback HTTP/JSON, bearer auth, scan jobs with progress + cancellation, analyze, quarantine control (404/409 mapping), readiness gate, settings/history persistence, RansomShield event ingestion | TESTED — 21 service tests incl. socket-level auth, readiness refusal and quarantine error mapping |
 | Native Windows GUI (WinUI 3 / WPF) with all 22 sections | PLANNED — no Windows host to build or test it |
@@ -121,13 +122,14 @@ Nothing in this file may be upgraded without the corresponding code and test.
 
 | Area | State |
 |---|---|
-| Unit tests across engine, rules, PE, vault, DB, scan, RansomShield | TESTED — 90 core tests; full suite 201 tests |
+| Unit tests across engine, rules, PE, vault, DB, scan, RansomShield | TESTED — 90 core tests; full suite 203 tests on Linux x86_64 |
 | Fuzz/adversarial input handling | PARTIALLY IMPLEMENTED — random/truncated buffers, malformed PE, garbage DER, archive-free |
 | Continuous fuzzing (cargo-fuzz, AFL) | PLANNED |
 | Malware corpus evaluation, FP/FN measurement | PLANNED — no labelled corpus with a usable licence |
 | Windows VM test matrix, driver tests, E2E | BLOCKED by environment |
 | Performance benchmarks | PARTIALLY IMPLEMENTED — CLI `bench` on Linux VM only |
 | Crash/recovery and event-loss tests | PARTIALLY IMPLEMENTED — quarantine journal/recovery is tested; VM/VHDX recovery is not written |
+| Platform labelling and readiness evidence sync | TESTED — POSIX-only source markers, gate `test_evidence`, and `docs/SAFEOS_READINESS.md` are checked against each other; Windows execution of the suite is UNPROVEN |
 
 ## 10. SafeOS (application isolation)
 
@@ -150,7 +152,7 @@ NOT READY** — see `docs/SAFEOS_READINESS.md` for the criterion-by-criterion ve
 | Guest behaviour monitoring / ETW correlation | BLOCKED | requires a running guest |
 | SafeLaunch UI, Explorer integration, installer | PLANNED | no Windows UI in this repository |
 | API integration (`/api/v1/safeos/status`, `/assess`, `/readiness`) and CLI (`litric safeos`) | TESTED | through the real daemon in end-to-end tests |
-| Fail-closed readiness gate (503, `production_ready:false`, guest runtime `UNPROVEN`) | TESTED | `/api/v1/readiness`, `/status`, `/health`, `/assess`, `safeos status`; refusal test rejects any `READY` outside the tested allowlist |
+| Fail-closed readiness gate (503, `production_ready:false`, guest runtime `UNPROVEN`) | TESTED | `/api/v1/readiness`, `/status`, `/health`, `/assess`, `safeos status`; refusal test rejects any `READY` outside the tested allowlist; `test_evidence` records Linux execution and Windows UNPROVEN |
 
 ## 11. Summary
 

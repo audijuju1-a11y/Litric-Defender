@@ -627,6 +627,9 @@ impl QuarantineVault {
             let mut f = fs::File::create(&tmp)?;
             f.write_all(&bytes)?;
             f.sync_all()?;
+            // Close the handle before hard-linking/removing the temp file. Windows
+            // refuses some of those operations while a file is still open.
+            drop(f);
             let written = fs::read(&tmp)?;
             if sha256_bytes(&written).to_hex() != meta.sha256 {
                 return Err(VaultError::IntegrityMismatch {

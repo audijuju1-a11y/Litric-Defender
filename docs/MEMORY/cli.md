@@ -3,7 +3,9 @@
 Binary: `litric` (`crates/litric-cli`). Library: `litric_cli::client`
 (HTTP transport + rendering, 8 unit tests). End-to-end: `tests/daemon_e2e.rs`
 (15 tests, real binary against a real daemon) plus `tests/safeos_launch_verify.rs`
-(4 tests).
+(4 POSIX-only tests) and `tests/platform_evidence.rs` (2 portable evidence-sync
+tests). Windows execution of this suite is UNPROVEN; see the readiness doc's
+`test_evidence` block.
 
 ## Behaviour
 

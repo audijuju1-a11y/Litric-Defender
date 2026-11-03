@@ -538,6 +538,9 @@ mod tests {
         let _ = app;
     }
 
+    // POSIX-ONLY-TEST: litric-safeos/src/sandbox.rs::a_file_name_with_separators_cannot_escape_the_mapping
+    // Windows counterpart UNPROVEN: Windows accepts backslash separators, so its
+    // path rule differs and has not been exercised by this suite.
     #[cfg(not(windows))]
     #[test]
     fn a_file_name_with_separators_cannot_escape_the_mapping() {

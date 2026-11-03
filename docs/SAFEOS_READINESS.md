@@ -66,7 +66,9 @@ Operations:
    instead of hiding it.
 3. **Restore** (`POST .../{id}/restore`): an existing destination is refused
    before any write. The entry is decrypted and hash-checked, a temp file in the
-   destination directory is written and re-hashed, renamed into place, then
+   destination directory is written and re-hashed, then published with an atomic
+   no-clobber `hard_link` and a `create_new` fallback; the temp handle is closed
+   before publish so Windows can complete the link/removal. The target is then
    re-read and re-hashed. Only after that are the entry and index row removed.
    The journal intent is written before the temp file, so an interruption leaves
    enough evidence to finish the restore or to refuse it.
@@ -114,7 +116,67 @@ Automated evidence in this repository:
 
 Limit: the crash cases write the same journal records a crash would leave, then
 reopen and recover. They do not prove power-loss durability of the filesystem or
-of directory entries; that needs a real Windows host test.
+of directory entries, nor the Windows/NTFS behavior of the no-clobber publish
+path; both need a real Windows host test and are reported `UNPROVEN` below.
+
+## Test execution platform and POSIX-only labels
+
+The passing suite was executed on **Linux x86_64 (POSIX host)** on 2026-11-03.
+It has **not** been executed on Windows: the Windows target is cross-compiled
+(`cargo check --all-targets`) and clippy-checked, but no test binary has run
+there. Therefore Windows execution of the suite, and Windows/NTFS behavior of the
+restore publish path, are `UNPROVEN` in the gate rather than inferred from a
+successful cross-compile.
+
+The tests below are explicitly POSIX-only and are excluded on Windows. Their
+Windows counterparts are **UNPROVEN**, not passing:
+
+- one agent end-to-end refusal expects the non-Windows 501 launch response;
+- four SafeOS launch end-to-end tests use non-Windows launch expectations and a
+  `/bin/sh` canary with POSIX mode bits;
+- scan hard-link de-duplication uses Unix inode metadata; Windows file-id dedupe
+  is not implemented;
+- broker symlink refusal has no unprivileged Windows symlink fixture;
+- the SafeOS separator-path test targets POSIX path rules; Windows uses `\`.
+
+`crates/litric-cli/tests/platform_evidence.rs` fails if a Windows-excluded test
+lacks a `// POSIX-ONLY-TEST:` marker, if the marker list differs from
+`POSIX_ONLY_TESTS`/the gate, or if this document's machine-readable block
+differs from the gate. The gate's unverified map is derived from its own
+non-READY capabilities; the test also rejects any READY capability listed as
+unverified.
+
+<!-- TEST-EVIDENCE-BEGIN -->
+```json
+{
+  "suite_executed_on": "Linux x86_64 (POSIX host)",
+  "windows_suite_execution": "UNPROVEN",
+  "windows_suite_reason": "No recorded run of the test suite on Windows; the Windows target is cross-compiled and clippy-checked only.",
+  "posix_only_tests": [
+    "litric-agent/tests/agent_e2e.rs::launch_refuses_politely_without_a_windows_launcher",
+    "litric-cli/tests/safeos_launch_verify.rs::a_valid_request_writes_a_locked_down_config_and_stops_at_the_platform_gate",
+    "litric-cli/tests/safeos_launch_verify.rs::every_readiness_blocker_is_named_and_reevaluated",
+    "litric-cli/tests/safeos_launch_verify.rs::no_launch_path_executes_the_host_application",
+    "litric-cli/tests/safeos_launch_verify.rs::unsafe_paths_are_rejected_with_stable_messages",
+    "litric-core/src/scan.rs::hard_links_are_deduplicated",
+    "litric-safeos/src/broker.rs::symlinks_are_refused",
+    "litric-safeos/src/sandbox.rs::a_file_name_with_separators_cannot_escape_the_mapping"
+  ],
+  "unverified_capabilities": {
+    "safeos_sandbox_launch": ["BLOCKED", "UNPROVEN"],
+    "safeos_sandbox_guest_runtime": ["UNPROVEN"],
+    "test_suite_windows_execution": ["UNPROVEN"],
+    "quarantine_windows_filesystem_semantics": ["UNPROVEN"],
+    "safeos_hyperv_backend": ["NOT_IMPLEMENTED"],
+    "safeos_network_gateway": ["NOT_IMPLEMENTED"],
+    "safeos_behavior_monitoring": ["NOT_IMPLEMENTED"],
+    "safeos_ui": ["NOT_IMPLEMENTED"],
+    "safeos_installer": ["NOT_IMPLEMENTED"],
+    "safeos_vm_recovery": ["UNPROVEN"]
+  }
+}
+```
+<!-- TEST-EVIDENCE-END -->
 
 ## Readiness gate — fail closed
 
@@ -123,11 +185,13 @@ of directory entries; that needs a real Windows host test.
 `safeos/status` and `safeos/assess` embed the gate or its `system_readiness`
 summary. Capability states are:
 
-* `READY` only for capabilities with passing automated tests here: on-demand
-  scan, quarantine, risk assessment, fail-closed policy, and sandbox config.
-* `UNPROVEN` for the Windows Sandbox launch on Windows and for the guest runtime
-  (networking, clipboard and read-only mapping have never been observed in a
-  running guest).
+* `READY` only for capabilities with passing automated tests on the platform
+  recorded above: on-demand scan, quarantine, risk assessment, fail-closed
+  policy, and sandbox config.
+* `UNPROVEN` for Windows execution of the test suite, Windows/NTFS quarantine
+  publish semantics, the Windows Sandbox launch on Windows, and the guest
+  runtime (networking, clipboard and read-only mapping have never been observed
+  in a running guest).
 * `BLOCKED` for launch on a non-Windows build.
 * `NOT_IMPLEMENTED` for Hyper-V, the WFP/WinNAT gateway, guest behaviour
   monitoring, UI and installer.
@@ -185,6 +249,7 @@ cargo check --workspace --all-targets --target x86_64-pc-windows-gnu
 cargo clippy --workspace --all-targets --target x86_64-pc-windows-gnu -- -D warnings
 ```
 
-Result at this revision: 201 tests passed, Windows check clean, Windows clippy
+Result at this revision: 203 tests passed on Linux x86_64 (POSIX host), Windows
+check clean, Windows clippy
 clean with `-D warnings`. The count and per-crate breakdown live in
 `docs/MEMORY/build.md`; update both together.

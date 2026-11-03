@@ -18,7 +18,6 @@ use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
 use clap::{Parser, Subcommand};
-use serde_json::Value;
 
 use litric_cli::client::{self, Client};
 use litric_core::engine::{Engine, EngineConfig};
@@ -240,7 +239,10 @@ fn run(cli: Cli) -> Result<ExitCode, Box<dyn std::error::Error>> {
                 .to_string();
             println!("scan queued  : {id}  ({} / {profile})", target.display());
             if no_wait {
-                println!("not waiting  : poll with `litric scan` insight via the API, or drop --no-wait");
+                println!(
+                    "not waiting  : job {id} is running in the daemon; re-run without \
+                     --no-wait to watch it, or check `litric status`"
+                );
                 return Ok(ExitCode::SUCCESS);
             }
 
@@ -774,6 +776,5 @@ fn bench(path: &Path, runs: usize, rules_dir: &Path) -> Result<ExitCode, Box<dyn
         );
     }
     println!("best wall time: {best:.3}s");
-    let _ = Value::Null;
     Ok(ExitCode::SUCCESS)
 }

@@ -2,9 +2,10 @@
 //!
 //! The native suite runs on Linux; the Windows-target suite also runs under
 //! Wine, which is not native Windows. A test may be Windows-excluded only if it
-//! carries an explicit `// POSIX-ONLY-TEST:` marker, appears in the readiness
-//! gate's `test_evidence`, and appears in the same list in
-//! `docs/SAFEOS_READINESS.md`. This file fails when any of those drift apart.
+//! carries an explicit `// POSIX-ONLY-TEST:` or `// WINDOWS-EXCLUDED-TEST:`
+//! marker, appears in the readiness gate's `test_evidence`, and appears in the
+//! same list in `docs/SAFEOS_READINESS.md`. This file fails when any of those
+//! drift apart.
 //!
 //! This file itself is portable: it only reads source/doc text and the gate JSON.
 
@@ -13,7 +14,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use litric_service::api::{
-    readiness_json, POSIX_ONLY_TESTS, SUITE_EXECUTED_ON, WINDOWS_SUITE_EXECUTION,
+    readiness_json, SUITE_EXECUTED_ON, WINDOWS_EXCLUDED_TESTS, WINDOWS_SUITE_EXECUTION,
     WINDOWS_SUITE_REASON, WINE_SUITE_EXECUTED_ON, WINE_SUITE_RESULT, WINE_SUITE_SCOPE,
 };
 use serde_json::Value;
@@ -85,9 +86,14 @@ fn windows_excluded_tests(src: &str) -> Vec<String> {
     out
 }
 
-fn posix_markers(src: &str) -> Vec<String> {
+fn exclusion_markers(src: &str) -> Vec<String> {
     src.lines()
-        .filter_map(|line| line.trim().strip_prefix("// POSIX-ONLY-TEST:"))
+        .filter_map(|line| {
+            let trimmed = line.trim();
+            trimmed
+                .strip_prefix("// POSIX-ONLY-TEST:")
+                .or_else(|| trimmed.strip_prefix("// WINDOWS-EXCLUDED-TEST:"))
+        })
         .map(str::trim)
         .filter(|id| !id.is_empty())
         .map(str::to_string)
@@ -129,7 +135,7 @@ fn posix_labels_match_source_gate_and_doc() {
             .to_string_lossy()
             .replace('\\', "/");
         let relative = relative.strip_prefix("crates/").unwrap_or(&relative);
-        for marker in posix_markers(&src) {
+        for marker in exclusion_markers(&src) {
             marked.insert(marker);
         }
         for name in windows_excluded_tests(&src) {
@@ -139,27 +145,27 @@ fn posix_labels_match_source_gate_and_doc() {
 
     assert_eq!(
         marked, excluded,
-        "every Windows-excluded test must carry one POSIX-ONLY-TEST marker, and every marker must name an excluded test"
+        "every Windows-excluded test must carry one exclusion marker, and every marker must name an excluded test"
     );
 
-    let expected: BTreeSet<String> = POSIX_ONLY_TESTS
+    let expected: BTreeSet<String> = WINDOWS_EXCLUDED_TESTS
         .iter()
         .map(|id| id.to_string())
         .collect();
     assert_eq!(
         marked, expected,
-        "the POSIX_ONLY_TESTS constant must match the source markers exactly"
+        "the WINDOWS_EXCLUDED_TESTS constant must match the source markers exactly"
     );
 
     let gate = readiness_json();
     let evidence = &gate["test_evidence"];
-    let gate_tests: BTreeSet<String> = evidence["posix_only_tests"]
+    let gate_tests: BTreeSet<String> = evidence["windows_excluded_tests"]
         .as_array()
-        .expect("gate posix_only_tests array")
+        .expect("gate windows_excluded_tests array")
         .iter()
         .map(|v| v.as_str().expect("test id string").to_string())
         .collect();
-    assert_eq!(gate_tests, expected, "gate POSIX list drifted from source");
+    assert_eq!(gate_tests, expected, "gate exclusion list drifted from source");
     assert_eq!(evidence["suite_executed_on"], SUITE_EXECUTED_ON);
     assert_eq!(evidence["wine_suite_executed_on"], WINE_SUITE_EXECUTED_ON);
     assert_eq!(evidence["wine_suite_result"], WINE_SUITE_RESULT);

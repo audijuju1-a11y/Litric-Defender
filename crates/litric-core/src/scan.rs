@@ -615,9 +615,9 @@ rule Eicar.Test {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    // POSIX-ONLY-TEST: litric-core/src/scan.rs::hard_links_are_deduplicated
-    // Windows counterpart UNPROVEN: Windows file-id dedupe is not implemented;
-    // this test is compiled only on Unix.
+    // WINDOWS-EXCLUDED-TEST: litric-core/src/scan.rs::hard_links_are_deduplicated
+    // Windows coverage gap, not a passing test: NTFS hard links exist, but
+    // Windows file-id dedupe is not implemented, so this remains excluded.
     #[cfg(unix)]
     #[test]
     fn hard_links_are_deduplicated() {

@@ -35,10 +35,14 @@ Run the daemon:
 
 That count was produced on Linux x86_64 (POSIX host). The Windows-target suite
 was also executed under Wine 11.21: 195 passed, 0 failed, with the 8 documented
-POSIX-only tests excluded. Wine is not native Windows; NTFS, native Windows 11
-and Windows Sandbox guest behavior remain UNPROVEN. The local test command needs
-a MinGW cross-linker and a Wine runner; `tests/platform_evidence.rs` enforces the
-POSIX-only markers and the gate/doc `test_evidence` block.
+Windows-excluded tests (6 POSIX-only, 2 coverage gaps). Wine is not native
+Windows; NTFS, native Windows 11 and Windows Sandbox guest behavior remain
+UNPROVEN. The local test command needs a MinGW cross-linker and a Wine runner;
+`scripts/windows-wine/setup.sh` builds both without root and
+`scripts/windows-wine/run-tests.sh` executes the suite. Full reproduction and
+clean-run evidence: `docs/WINDOWS_WINE_TESTING.md`.
+`tests/platform_evidence.rs` enforces the exclusion markers and the gate/doc
+`test_evidence` block.
 
 Quarantine lifecycle and recovery tests live in `litric-core` (`quarantine::tests::
 recovery_*`, `double_restore_*`, `corrupted_entry_*`) and in the CLI end-to-end

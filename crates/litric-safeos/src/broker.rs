@@ -476,9 +476,9 @@ mod tests {
         ));
     }
 
-    // POSIX-ONLY-TEST: litric-safeos/src/broker.rs::symlinks_are_refused
-    // Windows counterpart UNPROVEN: Windows symlink creation needs privileges
-    // and the refusal path has not been executed there.
+    // WINDOWS-EXCLUDED-TEST: litric-safeos/src/broker.rs::symlinks_are_refused
+    // Windows coverage gap, not a passing test: creating this fixture needs a
+    // symlink privilege/developer mode, and the refusal path is not exercised.
     #[cfg(unix)]
     #[test]
     fn symlinks_are_refused() {

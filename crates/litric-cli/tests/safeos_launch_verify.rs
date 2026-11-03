@@ -330,9 +330,23 @@ fn no_launch_path_executes_the_host_application() {
 
     // (a) Positive control inside the test: the canary really does leave a trace
     // when executed. Without this, "no marker" would prove nothing.
-    let control = std::process::Command::new(&canary)
-        .status()
-        .expect("run the canary as a control");
+    // A just-written file can transiently return ETXTBSY on Linux (for example
+    // while another process still has the write handle open); retry only that
+    // error, with a hard bound, so a real launch failure still fails the test.
+    let mut attempts = 0;
+    let control = loop {
+        match std::process::Command::new(&canary).status() {
+            Ok(status) => break status,
+            Err(error)
+                if error.kind() == std::io::ErrorKind::ExecutableFileBusy
+                    && attempts < 50 =>
+            {
+                attempts += 1;
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            Err(error) => panic!("run the canary as a control: {error}"),
+        }
+    };
     assert!(control.success(), "control canary did not run");
     assert!(
         marker.exists(),

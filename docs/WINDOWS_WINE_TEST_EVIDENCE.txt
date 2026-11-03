@@ -1,0 +1,446 @@
+Litric Windows-target test evidence
+Generated: 2026-11-03
+Host: Linux 6.1.102 x86_64
+Rust: rustc 1.99.1 (58cf8f9c3 2026-10-13)
+Cargo: cargo 1.99.1 (5f94df478 2026-08-27)
+Wine: wine-11.21
+Target: x86_64-pc-windows-gnu
+
+== cargo clean ==
+     Removed 6041 files, 1.3GiB total
+clean exit: 0
+
+== native: cargo test ==
+test tests::a_real_shaped_report_parses_and_is_usable ... ok
+test tests::a_failed_nat_query_is_not_treated_as_zero ... ok
+test tests::collector_is_read_only ... ok
+test tests::chunked_responses_are_decoded ... ok
+test tests::reports_without_known_are_rejected ... ok
+test tests::reports_without_windows_identity_are_rejected ... ok
+test tests::summary_never_claims_litric_can_launch ... ok
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test launch_is_refused_until_facts_are_reported ... ok
+test launch_refuses_politely_without_a_windows_launcher ... ok
+test agent_report_updates_status_but_never_claims_a_launcher ... ok
+test failed_nat_query_is_refused_by_the_daemon_status ... ok
+test invalid_report_is_rejected_and_does_not_replace_good_facts ... ok
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test client::tests::cancelled_and_failed_are_stated_plainly ... ok
+test client::tests::parses_chunked_response ... ok
+test client::tests::missing_token_file_is_actionable ... ok
+test client::tests::completed_job_lists_detections ... ok
+test client::tests::rejects_malformed_response ... ok
+test client::tests::parses_content_length_response ... ok
+test client::tests::quarantine_rendering_handles_empty_and_entries ... ok
+test client::tests::status_rendering_never_invents_protection ... ok
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test missing_token_file_is_actionable ... ok
+test empty_quarantine_lists_cleanly ... ok
+test safeos_assess_blocks_malicious_sample ... ok
+test analyze_reports_detection_through_daemon ... ok
+test cancel_reports_unknown_and_finished_jobs ... ok
+test safeos_assess_denies_unknown_app_instead_of_host_execution ... ok
+test safeos_status_reports_unavailable_backends_honestly ... ok
+test quarantine_add_then_list_round_trip ... ok
+test status_goes_through_the_daemon_and_reports_limited ... ok
+test wrong_token_is_rejected_with_guidance ... ok
+test quarantine_refuses_overwrite_and_corrupt_entries ... ok
+test quarantine_lifecycle_restore_purge_and_terminal_errors ... ok
+test scan_detects_eicar_and_shows_terminal_result ... ok
+test scan_with_fail_on_threat_exits_non_zero ... ok
+test stopped_daemon_is_reported_not_hidden ... ok
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.34s
+test unverified_capabilities_are_derived_from_the_gate ... ok
+test posix_labels_match_source_gate_and_doc ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+test a_valid_request_writes_a_locked_down_config_and_stops_at_the_platform_gate ... ok
+test no_launch_path_executes_the_host_application ... ok
+test unsafe_paths_are_rejected_with_stable_messages ... ok
+test every_readiness_blocker_is_named_and_reevaluated ... ok
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+test authenticode::tests::malformed_win_certificate_is_rejected ... ok
+test authenticode::tests::certificate_extraction_does_not_panic_on_garbage ... ok
+test authenticode::tests::der_length_parsing ... ok
+test authenticode::tests::oid_common_name_is_found ... ok
+test authenticode::tests::utc_time_year_parsing ... ok
+test bytes::tests::bounds_are_enforced ... ok
+test bytes::tests::cstr_is_capped ... ok
+test bytes::tests::offsets_near_usize_max_do_not_overflow ... ok
+test bytes::tests::utf16_roundtrip ... ok
+test entropy::tests::empty_input_is_safe ... ok
+test engine::tests::plain_text_is_unknown_not_clean ... ok
+test engine::tests::medium_rule_alone_is_suspicious_not_malicious ... ok
+test entropy::tests::half_compressed_data_has_partial_ratio ... ok
+test engine::tests::eicar_is_detected_by_rule ... ok
+test engine::tests::critical_rule_makes_it_malicious ... ok
+test entropy::tests::uniform_bytes_are_zero_entropy ... ok
+test format::tests::embedded_pe_is_found ... ok
+test format::tests::detects_basic_magics ... ok
+test format::tests::detects_scripts_by_content ... ok
+test format::tests::extension_mismatch_is_visible ... ok
+test hash::tests::empty_sha256_vector ... ok
+test engine::tests::truncated_pe_does_not_panic ... ok
+test hash::tests::import_fingerprint_is_order_sensitive ... ok
+test hash::tests::known_sha256_vector ... ok
+test format::tests::text_detection_does_not_crash_on_binary ... ok
+test heuristics::tests::clean_text_has_no_strong_signals ... ok
+test heuristics::tests::double_extension_is_flagged ... ok
+test hash::tests::hex_roundtrip ... ok
+test heuristics::tests::every_signal_carries_an_explanation ... ok
+test heuristics::tests::download_cradle_is_strong ... ok
+test heuristics::tests::extension_spoof_is_flagged ... ok
+test heuristics::tests::masquerading_svchost_is_flagged ... ok
+test pe::tests::checksum_of_zero_buffer_matches_formula ... ok
+test heuristics::tests::shadow_copy_command_is_definitive ... ok
+test pe::tests::rejects_non_pe ... ok
+test pe::tests::rejects_truncated_mz ... ok
+test heuristics::tests::wide_strings_are_detected ... ok
+test pe::tests::rva_mapping_respects_sections ... ok
+test entropy::tests::random_bytes_approach_eight ... ok
+test quarantine::tests::copy_only_keeps_original ... ok
+test quarantine::tests::corrupted_entry_is_refused_before_creating_a_target ... ok
+test quarantine::tests::header_tampering_is_detected ... ok
+test quarantine::tests::opening_the_vault_completes_an_interrupted_restore ... ok
+test quarantine::tests::recovery_cleans_an_index_after_a_completed_purge ... ok
+test quarantine::tests::restore_never_overwrites ... ok
+test quarantine::tests::recovery_preserves_a_conflicting_restore_target ... ok
+test quarantine::tests::recovery_completes_an_interrupted_restore ... ok
+test quarantine::tests::recovery_indexes_an_orphaned_quarantine_entry ... ok
+test ranshield::tests::archiver_producing_unknown_extensions_escalates ... ok
+test ranshield::tests::archiver_writing_many_files_is_not_ransomware ... ok
+test ranshield::tests::backup_destruction_is_critical_even_for_signed_binary ... ok
+test ranshield::tests::benign_text_editing_stays_normal ... ok
+test ranshield::tests::decoy_touch_is_critical_and_suspends ... ok
+test quarantine::tests::double_restore_and_restore_after_purge_are_not_found ... ok
+test ranshield::tests::extension_churn_and_entropy_escalate_together ... ok
+test ranshield::tests::honeyvault_deploys_and_identifies_decoys ... ok
+test rules::tests::comments_are_ignored ... ok
+test rules::tests::count_operator_works ... ok
+test rules::tests::empty_ruleset_is_safe ... ok
+test rules::tests::filesize_and_entropy_conditions ... ok
+test rules::tests::fullword_prevents_substring_false_positive ... ok
+test quarantine::tests::roundtrip_quarantine_and_restore ... ok
+test rules::tests::parses_and_matches_text ... ok
+test rules::tests::rejects_bad_conditions ... ok
+test rules::tests::unknown_meta_key_is_an_error ... ok
+test rules::tests::wide_nocase_matches ... ok
+test quarantine::tests::verify_all_reports_integrity ... ok
+test rules::tests::wildcard_hex_matches_and_misses ... ok
+test quarantine::tests::truncated_entry_is_rejected ... ok
+test quarantine::tests::wrong_key_cannot_decrypt ... ok
+test scan::tests::directory_scan_accounts_every_category ... ok
+test scan::tests::excluded_roots_are_not_walked ... ok
+test scan::tests::hard_links_are_deduplicated ... ok
+test scan::tests::cancellation_stops_the_walk ... ok
+test scan::tests::file_budget_stops_the_walk ... ok
+test scan::tests::progress_callback_sees_counts ... ok
+test threatdb::tests::development_key_is_not_accepted_as_production ... ok
+test threatdb::tests::forged_payload_cannot_reuse_signature ... ok
+test threatdb::tests::engine_version_gate ... ok
+test ranshield::tests::window_expiry_prevents_permanent_penalty ... ok
+test threatdb::tests::revoked_hash_is_not_returned ... ok
+test scan::tests::cache_skips_unchanged_files ... ok
+test threatdb::tests::version_compare ... ok
+test threatdb::tests::tampered_payload_fails_hash_check ... ok
+test threatdb::tests::signs_verifies_and_loads ... ok
+test threatdb::tests::tampered_signature_is_rejected ... ok
+test engine::tests::random_buffers_never_panic ... ok
+test threatdb::tests::rollback_is_refused_without_force ... ok
+test rules::tests::matcher_is_linear_in_file_size ... ok
+test quarantine::tests::passphrase_derivation_is_deterministic ... ok
+test result: ok. 90 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 9.23s
+test broker::tests::export_outside_staging_is_refused ... ok
+test broker::tests::oversized_files_are_refused ... ok
+test broker::tests::symlinks_are_refused ... ok
+test broker::tests::import_copies_and_verifies_without_touching_the_source ... ok
+test broker::tests::existing_destination_is_refused_without_approval ... ok
+test journal::tests::invalid_session_ids_are_rejected ... ok
+test broker::tests::traversal_and_ads_names_are_rejected ... ok
+test model::tests::a_linux_host_cannot_claim_isolation_backends ... ok
+test model::tests::existing_nat_blocks_gateway_but_not_offline_sandbox ... ok
+test model::tests::failed_nat_query_blocks_gateway_instead_of_assuming_zero ... ok
+test model::tests::good_host_is_usable ... ok
+test model::tests::json_facts_parse_and_default_to_unavailable ... ok
+test model::tests::low_disk_blocks_vm_but_allows_sandbox ... ok
+test model::tests::low_ram_disables_isolation_instead_of_risking_the_host ... ok
+test model::tests::missing_sandbox_feature_is_a_named_blocker ... ok
+test model::tests::unknown_facts_make_everything_unavailable ... ok
+test policy::tests::malicious_is_blocked_regardless_of_backends ... ok
+test policy::tests::only_trusted_runs_on_host ... ok
+test policy::tests::suspicious_never_falls_back_to_sandbox_or_host ... ok
+test policy::tests::suspicious_with_hyperv_but_no_gateway_is_offline_vm ... ok
+test policy::tests::unknown_uses_sandbox_when_available ... ok
+test policy::tests::unknown_without_backends_is_denied_not_run_on_host ... ok
+test risk::tests::malicious_beats_allowlist ... ok
+test risk::tests::malicious_hash_is_level_three ... ok
+test risk::tests::suspicious_verdict_is_level_two ... ok
+test risk::tests::unknown_unsigned_app_is_level_one_not_malicious ... ok
+test risk::tests::unvalidated_signature_never_grants_trust ... ok
+test risk::tests::validated_chain_plus_allowlist_is_trusted ... ok
+test sandbox::tests::a_file_name_with_separators_cannot_escape_the_mapping ... ok
+test sandbox::tests::configuration_disables_networking_and_all_redirection ... ok
+test sandbox::tests::drive_roots_and_user_profiles_are_refused_before_access ... ok
+test sandbox::tests::launch_capability_matches_the_compile_time_gate ... ok
+test sandbox::tests::mapped_folders_are_read_only ... ok
+test sandbox::tests::missing_feature_refuses_launch ... ok
+test sandbox::tests::non_windows_launch_refuses_after_preparing ... ok
+test sandbox::tests::prepare_writes_a_locked_down_config_and_never_executes ... ok
+test sandbox::tests::refuses_to_map_a_user_profile ... ok
+test sandbox::tests::refuses_to_map_a_whole_drive ... ok
+test sandbox::tests::reserved_device_names_are_refused ... ok
+test sandbox::tests::sandbox_memory_scales_with_reported_ram ... ok
+test sandbox::tests::underpowered_host_refuses_launch ... ok
+test sandbox::tests::unknown_facts_refuse_launch_before_any_process ... ok
+test sandbox::tests::verbatim_host_paths_are_rewritten_for_the_wsb ... ok
+test sandbox::tests::xml_special_characters_are_escaped ... ok
+test broker::tests::approved_overwrite_replaces_the_file ... ok
+test broker::tests::export_commits_a_verified_copy ... ok
+test journal::tests::corrupt_lines_are_counted_not_fatal ... ok
+test broker::tests::scan_gate_rejection_leaves_destination_absent_and_staging_intact ... ok
+test journal::tests::cleanup_is_idempotent_and_only_touches_session_dirs ... ok
+test journal::tests::a_running_session_that_never_finished_is_a_recovery_case ... ok
+test journal::tests::state_transitions_are_recorded_in_order ... ok
+test result: ok. 51 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.29s
+test api::tests::scan_rejects_missing_path ... ok
+test api::tests::ranshield_decoy_ingestion_is_critical ... ok
+test api::tests::readiness_gate_refuses_to_claim_ready ... ok
+test jobs::tests::cancelling_unknown_job_reports_false ... ok
+test jobs::tests::create_get_and_cancel ... ok
+test jobs::tests::profiles_change_limits ... ok
+test api::tests::status_never_claims_protection ... ok
+test api::tests::settings_are_persisted ... ok
+test api::tests::unknown_route_is_404 ... ok
+test server::tests::refuses_non_loopback_bind ... ok
+test store::tests::corrupt_settings_fall_back_to_defaults ... ok
+test store::tests::validation_rejects_absurd_retention ... ok
+test tests::token_comparison_is_exact ... ok
+test tests::token_file_is_created_once_and_reused ... ok
+test server::tests::rejects_missing_token_and_accepts_valid_one ... ok
+test store::tests::settings_roundtrip_and_reload ... ok
+test api::tests::purge_requires_confirmation ... ok
+test api::tests::quarantine_http_errors_are_actionable ... ok
+test api::tests::quarantine_add_list_restore ... ok
+test api::tests::scan_job_runs_and_reports_detection ... ok
+test store::tests::history_is_capped ... ok
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.41s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+native exit: 0
+
+== Windows target under Wine via scripts/windows-wine/run-tests.sh ==
+test tests::a_failed_nat_query_is_not_treated_as_zero ... ok
+test tests::a_real_shaped_report_parses_and_is_usable ... ok
+test tests::chunked_responses_are_decoded ... ok
+test tests::collector_is_read_only ... ok
+test tests::reports_without_known_are_rejected ... ok
+test tests::reports_without_windows_identity_are_rejected ... ok
+test tests::summary_never_claims_litric_can_launch ... ok
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test agent_report_updates_status_but_never_claims_a_launcher ... ok
+test failed_nat_query_is_refused_by_the_daemon_status ... ok
+test invalid_report_is_rejected_and_does_not_replace_good_facts ... ok
+test launch_is_refused_until_facts_are_reported ... ok
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.35s
+test client::tests::cancelled_and_failed_are_stated_plainly ... ok
+test client::tests::completed_job_lists_detections ... ok
+test client::tests::missing_token_file_is_actionable ... ok
+test client::tests::parses_chunked_response ... ok
+test client::tests::parses_content_length_response ... ok
+test client::tests::quarantine_rendering_handles_empty_and_entries ... ok
+test client::tests::rejects_malformed_response ... ok
+test client::tests::status_rendering_never_invents_protection ... ok
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test analyze_reports_detection_through_daemon ... ok
+test cancel_reports_unknown_and_finished_jobs ... ok
+test empty_quarantine_lists_cleanly ... ok
+test missing_token_file_is_actionable ... ok
+test quarantine_add_then_list_round_trip ... ok
+test quarantine_lifecycle_restore_purge_and_terminal_errors ... ok
+test quarantine_refuses_overwrite_and_corrupt_entries ... ok
+test safeos_assess_blocks_malicious_sample ... ok
+test safeos_assess_denies_unknown_app_instead_of_host_execution ... ok
+test safeos_status_reports_unavailable_backends_honestly ... ok
+test scan_detects_eicar_and_shows_terminal_result ... ok
+test scan_with_fail_on_threat_exits_non_zero ... ok
+test status_goes_through_the_daemon_and_reports_limited ... ok
+test stopped_daemon_is_reported_not_hidden ... ok
+test wrong_token_is_rejected_with_guidance ... ok
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.13s
+test posix_labels_match_source_gate_and_doc ... ok
+test unverified_capabilities_are_derived_from_the_gate ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test authenticode::tests::certificate_extraction_does_not_panic_on_garbage ... ok
+test authenticode::tests::der_length_parsing ... ok
+test authenticode::tests::malformed_win_certificate_is_rejected ... ok
+test authenticode::tests::oid_common_name_is_found ... ok
+test authenticode::tests::utc_time_year_parsing ... ok
+test bytes::tests::bounds_are_enforced ... ok
+test bytes::tests::cstr_is_capped ... ok
+test bytes::tests::offsets_near_usize_max_do_not_overflow ... ok
+test bytes::tests::utf16_roundtrip ... ok
+test engine::tests::critical_rule_makes_it_malicious ... ok
+test engine::tests::eicar_is_detected_by_rule ... ok
+test engine::tests::medium_rule_alone_is_suspicious_not_malicious ... ok
+test engine::tests::plain_text_is_unknown_not_clean ... ok
+test engine::tests::random_buffers_never_panic ... ok
+test engine::tests::truncated_pe_does_not_panic ... ok
+test entropy::tests::empty_input_is_safe ... ok
+test entropy::tests::half_compressed_data_has_partial_ratio ... ok
+test entropy::tests::random_bytes_approach_eight ... ok
+test entropy::tests::uniform_bytes_are_zero_entropy ... ok
+test format::tests::detects_basic_magics ... ok
+test format::tests::detects_scripts_by_content ... ok
+test format::tests::embedded_pe_is_found ... ok
+test format::tests::extension_mismatch_is_visible ... ok
+test format::tests::text_detection_does_not_crash_on_binary ... ok
+test hash::tests::empty_sha256_vector ... ok
+test hash::tests::hex_roundtrip ... ok
+test hash::tests::import_fingerprint_is_order_sensitive ... ok
+test hash::tests::known_sha256_vector ... ok
+test heuristics::tests::clean_text_has_no_strong_signals ... ok
+test heuristics::tests::double_extension_is_flagged ... ok
+test heuristics::tests::download_cradle_is_strong ... ok
+test heuristics::tests::every_signal_carries_an_explanation ... ok
+test heuristics::tests::extension_spoof_is_flagged ... ok
+test heuristics::tests::masquerading_svchost_is_flagged ... ok
+test heuristics::tests::shadow_copy_command_is_definitive ... ok
+test heuristics::tests::wide_strings_are_detected ... ok
+test pe::tests::checksum_of_zero_buffer_matches_formula ... ok
+test pe::tests::rejects_non_pe ... ok
+test pe::tests::rejects_truncated_mz ... ok
+test pe::tests::rva_mapping_respects_sections ... ok
+test quarantine::tests::copy_only_keeps_original ... ok
+test quarantine::tests::corrupted_entry_is_refused_before_creating_a_target ... ok
+test quarantine::tests::double_restore_and_restore_after_purge_are_not_found ... ok
+test quarantine::tests::header_tampering_is_detected ... ok
+test quarantine::tests::opening_the_vault_completes_an_interrupted_restore ... ok
+test quarantine::tests::passphrase_derivation_is_deterministic ... ok
+test quarantine::tests::recovery_cleans_an_index_after_a_completed_purge ... ok
+test quarantine::tests::recovery_completes_an_interrupted_restore ... ok
+test quarantine::tests::recovery_indexes_an_orphaned_quarantine_entry ... ok
+test quarantine::tests::recovery_preserves_a_conflicting_restore_target ... ok
+test quarantine::tests::restore_never_overwrites ... ok
+test quarantine::tests::roundtrip_quarantine_and_restore ... ok
+test quarantine::tests::truncated_entry_is_rejected ... ok
+test quarantine::tests::verify_all_reports_integrity ... ok
+test quarantine::tests::wrong_key_cannot_decrypt ... ok
+test ranshield::tests::archiver_producing_unknown_extensions_escalates ... ok
+test ranshield::tests::archiver_writing_many_files_is_not_ransomware ... ok
+test ranshield::tests::backup_destruction_is_critical_even_for_signed_binary ... ok
+test ranshield::tests::benign_text_editing_stays_normal ... ok
+test ranshield::tests::decoy_touch_is_critical_and_suspends ... ok
+test ranshield::tests::extension_churn_and_entropy_escalate_together ... ok
+test ranshield::tests::honeyvault_deploys_and_identifies_decoys ... ok
+test ranshield::tests::window_expiry_prevents_permanent_penalty ... ok
+test rules::tests::comments_are_ignored ... ok
+test rules::tests::count_operator_works ... ok
+test rules::tests::empty_ruleset_is_safe ... ok
+test rules::tests::filesize_and_entropy_conditions ... ok
+test rules::tests::fullword_prevents_substring_false_positive ... ok
+test rules::tests::matcher_is_linear_in_file_size ... ok
+test rules::tests::parses_and_matches_text ... ok
+test rules::tests::rejects_bad_conditions ... ok
+test rules::tests::unknown_meta_key_is_an_error ... ok
+test rules::tests::wide_nocase_matches ... ok
+test rules::tests::wildcard_hex_matches_and_misses ... ok
+test scan::tests::cache_skips_unchanged_files ... ok
+test scan::tests::cancellation_stops_the_walk ... ok
+test scan::tests::directory_scan_accounts_every_category ... ok
+test scan::tests::excluded_roots_are_not_walked ... ok
+test scan::tests::file_budget_stops_the_walk ... ok
+test scan::tests::progress_callback_sees_counts ... ok
+test threatdb::tests::development_key_is_not_accepted_as_production ... ok
+test threatdb::tests::engine_version_gate ... ok
+test threatdb::tests::forged_payload_cannot_reuse_signature ... ok
+test threatdb::tests::revoked_hash_is_not_returned ... ok
+test threatdb::tests::rollback_is_refused_without_force ... ok
+test threatdb::tests::signs_verifies_and_loads ... ok
+test threatdb::tests::tampered_payload_fails_hash_check ... ok
+test threatdb::tests::tampered_signature_is_rejected ... ok
+test threatdb::tests::version_compare ... ok
+test result: ok. 89 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.11s
+test broker::tests::approved_overwrite_replaces_the_file ... ok
+test broker::tests::existing_destination_is_refused_without_approval ... ok
+test broker::tests::export_commits_a_verified_copy ... ok
+test broker::tests::export_outside_staging_is_refused ... ok
+test broker::tests::import_copies_and_verifies_without_touching_the_source ... ok
+test broker::tests::oversized_files_are_refused ... ok
+test broker::tests::scan_gate_rejection_leaves_destination_absent_and_staging_intact ... ok
+test broker::tests::traversal_and_ads_names_are_rejected ... ok
+test journal::tests::a_running_session_that_never_finished_is_a_recovery_case ... ok
+test journal::tests::cleanup_is_idempotent_and_only_touches_session_dirs ... ok
+test journal::tests::corrupt_lines_are_counted_not_fatal ... ok
+test journal::tests::invalid_session_ids_are_rejected ... ok
+test journal::tests::state_transitions_are_recorded_in_order ... ok
+test model::tests::a_linux_host_cannot_claim_isolation_backends ... ok
+test model::tests::existing_nat_blocks_gateway_but_not_offline_sandbox ... ok
+test model::tests::failed_nat_query_blocks_gateway_instead_of_assuming_zero ... ok
+test model::tests::good_host_is_usable ... ok
+test model::tests::json_facts_parse_and_default_to_unavailable ... ok
+test model::tests::low_disk_blocks_vm_but_allows_sandbox ... ok
+test model::tests::low_ram_disables_isolation_instead_of_risking_the_host ... ok
+test model::tests::missing_sandbox_feature_is_a_named_blocker ... ok
+test model::tests::unknown_facts_make_everything_unavailable ... ok
+test policy::tests::malicious_is_blocked_regardless_of_backends ... ok
+test policy::tests::only_trusted_runs_on_host ... ok
+test policy::tests::suspicious_never_falls_back_to_sandbox_or_host ... ok
+test policy::tests::suspicious_with_hyperv_but_no_gateway_is_offline_vm ... ok
+test policy::tests::unknown_uses_sandbox_when_available ... ok
+test policy::tests::unknown_without_backends_is_denied_not_run_on_host ... ok
+test risk::tests::malicious_beats_allowlist ... ok
+test risk::tests::malicious_hash_is_level_three ... ok
+test risk::tests::suspicious_verdict_is_level_two ... ok
+test risk::tests::unknown_unsigned_app_is_level_one_not_malicious ... ok
+test risk::tests::unvalidated_signature_never_grants_trust ... ok
+test risk::tests::validated_chain_plus_allowlist_is_trusted ... ok
+test sandbox::tests::configuration_disables_networking_and_all_redirection ... ok
+test sandbox::tests::drive_roots_and_user_profiles_are_refused_before_access ... ok
+test sandbox::tests::launch_capability_matches_the_compile_time_gate ... ok
+test sandbox::tests::mapped_folders_are_read_only ... ok
+test sandbox::tests::missing_feature_refuses_launch ... ok
+test sandbox::tests::non_windows_launch_refuses_after_preparing ... ok
+test sandbox::tests::prepare_writes_a_locked_down_config_and_never_executes ... ok
+test sandbox::tests::refuses_to_map_a_user_profile ... ok
+test sandbox::tests::refuses_to_map_a_whole_drive ... ok
+test sandbox::tests::reserved_device_names_are_refused ... ok
+test sandbox::tests::sandbox_memory_scales_with_reported_ram ... ok
+test sandbox::tests::underpowered_host_refuses_launch ... ok
+test sandbox::tests::unknown_facts_refuse_launch_before_any_process ... ok
+test sandbox::tests::verbatim_host_paths_are_rewritten_for_the_wsb ... ok
+test sandbox::tests::xml_special_characters_are_escaped ... ok
+test result: ok. 49 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s
+test api::tests::purge_requires_confirmation ... ok
+test api::tests::quarantine_add_list_restore ... ok
+test api::tests::quarantine_http_errors_are_actionable ... ok
+test api::tests::ranshield_decoy_ingestion_is_critical ... ok
+test api::tests::readiness_gate_refuses_to_claim_ready ... ok
+test api::tests::scan_job_runs_and_reports_detection ... ok
+test api::tests::scan_rejects_missing_path ... ok
+test api::tests::settings_are_persisted ... ok
+test api::tests::status_never_claims_protection ... ok
+test api::tests::unknown_route_is_404 ... ok
+test jobs::tests::cancelling_unknown_job_reports_false ... ok
+test jobs::tests::create_get_and_cancel ... ok
+test jobs::tests::profiles_change_limits ... ok
+test server::tests::refuses_non_loopback_bind ... ok
+test server::tests::rejects_missing_token_and_accepts_valid_one ... ok
+test store::tests::corrupt_settings_fall_back_to_defaults ... ok
+test store::tests::history_is_capped ... ok
+test store::tests::settings_roundtrip_and_reload ... ok
+test store::tests::validation_rejects_absurd_retention ... ok
+test tests::token_comparison_is_exact ... ok
+test tests::token_file_is_created_once_and_reused ... ok
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.72s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+windows exit: 0
+
+No test failed in this run. The Windows run used Wine, not native Windows.

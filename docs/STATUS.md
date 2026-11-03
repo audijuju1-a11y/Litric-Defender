@@ -123,14 +123,14 @@ Nothing in this file may be upgraded without the corresponding code and test.
 | Area | State |
 |---|---|
 | Unit tests across engine, rules, PE, vault, DB, scan, RansomShield | TESTED — 90 core tests; full suite 203 tests on Linux x86_64 |
-| Windows-target test suite | TESTED under Wine 11.21 — 195 passed, 0 failed; 8 POSIX-only tests excluded; not native Windows |
+| Windows-target test suite | TESTED under Wine 11.21 — 195 passed, 0 failed; 8 Windows-excluded tests (6 POSIX-only, 2 coverage gaps); not native Windows |
 | Fuzz/adversarial input handling | PARTIALLY IMPLEMENTED — random/truncated buffers, malformed PE, garbage DER, archive-free |
 | Continuous fuzzing (cargo-fuzz, AFL) | PLANNED |
 | Malware corpus evaluation, FP/FN measurement | PLANNED — no labelled corpus with a usable licence |
 | Windows VM test matrix, driver tests, E2E | BLOCKED by environment |
 | Performance benchmarks | PARTIALLY IMPLEMENTED — CLI `bench` on Linux VM only |
 | Crash/recovery and event-loss tests | PARTIALLY IMPLEMENTED — quarantine journal/recovery is tested; VM/VHDX recovery is not written |
-| Platform labelling and readiness evidence sync | TESTED — POSIX-only source markers, gate `test_evidence`, and `docs/SAFEOS_READINESS.md` are checked against each other; the Wine ABI run is recorded separately and native Windows execution remains UNPROVEN |
+| Platform labelling and readiness evidence sync | TESTED — Windows-exclusion source markers, gate `test_evidence`, and `docs/SAFEOS_READINESS.md` are checked against each other; the Wine ABI run is recorded separately and native Windows execution remains UNPROVEN |
 
 ## 10. SafeOS (application isolation)
 

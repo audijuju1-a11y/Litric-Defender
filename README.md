@@ -29,8 +29,10 @@ project is early, and the status file lists what is *not* built.
 ```bash
 cargo build --release
 cargo test                      # 203 tests on Linux x86_64
-cargo test --workspace --all-targets --target x86_64-pc-windows-gnu
-                                # 195 tests under Wine 11.21; 8 POSIX-only excluded
+scripts/windows-wine/setup.sh  # one-time, no-root MinGW + Wine setup
+scripts/windows-wine/run-tests.sh
+                                # 195 tests under Wine 11.21; 8 Windows-excluded
+                                # (6 POSIX-only, 2 coverage gaps)
 ./target/release/litric rules lint rules
 ./target/release/litric scan /path/to/scan
 ./target/release/litric analyze suspicious.exe
@@ -88,9 +90,11 @@ cargo check --target x86_64-pc-windows-gnu -p litric-core
 
 `cargo check` only compiles the Windows target; it does not run tests. The
 readiness doc records that the native suite was executed on Linux and the
-Windows-target suite under Wine 11.21 (195/195; 8 POSIX-only tests excluded).
-Wine is not native Windows: NTFS, native Windows 11, and Windows Sandbox guest
-behavior remain UNPROVEN.
+Windows-target suite under Wine 11.21 (195/195; 8 Windows-excluded tests: 6
+POSIX-only, 2 coverage gaps). The reproducible setup and runner are in
+[docs/WINDOWS_WINE_TESTING.md](docs/WINDOWS_WINE_TESTING.md). Wine is not native
+Windows: NTFS, native Windows 11, and Windows Sandbox guest behavior remain
+UNPROVEN.
 
 ## Measured baseline
 

@@ -1,5 +1,9 @@
 # SafeOS — manual verification on a real Windows 11 host
 
+For the reproducible **Linux/Wine Windows-ABI test run** (not a Windows host),
+see `docs/WINDOWS_WINE_TESTING.md`. The instructions below are the real-host
+checklist and must not be replaced by Wine results.
+
 `LAUNCH_VERIFIED_ON_WINDOWS` is **false** today. The launcher exists in Windows
 builds, but it has never been executed on a real host by the person who wrote it.
 Run every step below before changing that constant or describing SafeOS as
@@ -204,11 +208,13 @@ Then update `LAUNCH_VERIFIED_ON_WINDOWS` to `true` in
 - The launcher does not broker files into the guest beyond a read-only mapping,
   and does not export anything back automatically.
 - The native Windows test suite has never run on Windows. The Windows-target
-  suite passed 195/195 under Wine 11.21, with 8 POSIX-only tests excluded, but
-  that is a Windows-ABI run, not native Windows. NTFS no-clobber restore behavior
-  and every POSIX-only test's Windows counterpart remain UNPROVEN; the gate's
-  `test_evidence` records both runs separately rather than promoting Wine to
-  native evidence.
+  suite passed 195/195 under Wine 11.21. Of the 8 excluded tests, 6 are
+  POSIX-only and 2 are Windows coverage gaps (file-id hard-link dedupe and an
+  unprivileged symlink fixture); neither gap is counted as a pass. Reproduce the
+  Wine run with `docs/WINDOWS_WINE_TESTING.md`. That is a Windows-ABI run, not
+  native Windows: NTFS no-clobber restore behavior and every gap's Windows
+  counterpart remain UNPROVEN. The gate's `test_evidence` records both runs
+  separately rather than promoting Wine to native evidence.
 - No WFP gateway or Hyper-V backend exists; sandbox networking is always disabled.
 - Waiting (`--wait`) may return when the sandbox client exits, not when the guest
   is fully torn down; verify with Task Manager.

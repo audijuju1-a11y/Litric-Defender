@@ -119,15 +119,17 @@ reopen and recover. They do not prove power-loss durability of the filesystem or
 of directory entries, nor the Windows/NTFS behavior of the no-clobber publish
 path; both need a real Windows host test and are reported `UNPROVEN` below.
 
-## Test execution platform and POSIX-only labels
+## Test execution platform and exclusions
 
 The native suite (203 tests) was executed on **Linux x86_64 (POSIX host)** on
-2026-11-03. The Windows-target suite (195 tests; 8 POSIX-only tests excluded) was
-executed under **Wine 11.21** on the same Linux host, using
-`x86_64-pc-windows-gnu` test binaries. It passed 195/195 after fixing a real
-Windows-only bug: the file broker opened its verified temporary export file
-read-only and then called `sync_all`, which fails with access denied because
-Windows `FlushFileBuffers` requires a writable handle.
+2026-11-03 and reproduced after `cargo clean`. The Windows-target suite (195
+tests; 8 Windows-excluded tests) was executed under **Wine 11.21** on the same
+Linux host, using `x86_64-pc-windows-gnu` test binaries. It passed 195/195
+after fixing a real Windows-only bug: the file broker opened its verified
+temporary export file read-only and then called `sync_all`, which fails with
+access denied because Windows `FlushFileBuffers` requires a writable handle.
+The exact no-root setup, Wine hash, runner variables, and clean-run commands are
+in `docs/WINDOWS_WINE_TESTING.md`.
 
 Wine executes the PE test binaries against Wine's Windows ABI, but it is **not
 native Windows 11**. It cannot prove NTFS behavior, native Windows APIs, or the
@@ -135,21 +137,24 @@ Windows Sandbox guest boundary. The gate therefore keeps native Windows
 execution and Windows/NTFS restore semantics `UNPROVEN`; the Wine run is recorded
 separately in `test_evidence` rather than being promoted to native evidence.
 
-The tests below are explicitly POSIX-only and are excluded from both the Windows
-target build and the Wine run. Their Windows counterparts are **UNPROVEN**, not
-passing:
+Six of the eight exclusions are genuinely POSIX-only: one agent end-to-end
+refusal expects the non-Windows 501 response; four SafeOS launch end-to-end tests
+use non-Windows expectations and a `/bin/sh` canary; and the SafeOS
+separator-path test targets POSIX path rules (Windows treats `\` as a separator).
+The other two are **Windows coverage gaps, not passing tests**:
 
-- one agent end-to-end refusal expects the non-Windows 501 launch response;
-- four SafeOS launch end-to-end tests use non-Windows launch expectations and a
-  `/bin/sh` canary with POSIX mode bits;
-- scan hard-link de-duplication uses Unix inode metadata; Windows file-id dedupe
-  is not implemented;
-- broker symlink refusal has no unprivileged Windows symlink fixture;
-- the SafeOS separator-path test targets POSIX path rules; Windows uses `\`.
+- scan hard-link de-duplication uses Unix inode metadata; NTFS hard links exist,
+  but Windows file-id dedupe is not implemented, so the test would fail there;
+- broker symlink refusal has no unprivileged Windows symlink fixture; the
+  refusal path remains unexercised on Windows.
+
+Both gap tests are marked `// WINDOWS-EXCLUDED-TEST:` and listed as `UNPROVEN`
+below; they are not counted as Windows passes. The six platform tests use
+`// POSIX-ONLY-TEST:`.
 
 `crates/litric-cli/tests/platform_evidence.rs` fails if a Windows-excluded test
-lacks a `// POSIX-ONLY-TEST:` marker, if the marker list differs from
-`POSIX_ONLY_TESTS`/the gate, if the Wine evidence fields drift, or if this
+lacks an exclusion marker, if the marker list differs from
+`WINDOWS_EXCLUDED_TESTS`/the gate, if the Wine evidence fields drift, or if this
 document's machine-readable block differs from the gate. The gate's unverified
 map is derived from its own non-READY capabilities; the test also rejects any
 READY capability listed as unverified.
@@ -159,11 +164,11 @@ READY capability listed as unverified.
 {
   "suite_executed_on": "Linux x86_64 (POSIX host)",
   "wine_suite_executed_on": "Wine 11.21 (Linux x86_64), target x86_64-pc-windows-gnu",
-  "wine_suite_result": "195 passed; 0 failed; 8 POSIX-only tests excluded",
+  "wine_suite_result": "195 passed; 0 failed; 8 Windows-excluded tests (6 POSIX-only, 2 Windows coverage gaps)",
   "wine_suite_scope": "Windows ABI under Wine; not native Windows 11, NTFS, or Windows Sandbox guest evidence",
   "windows_suite_execution": "UNPROVEN",
-  "windows_suite_reason": "Native Windows 11 execution has not been performed. The Windows-target test binaries were executed under Wine 11.21: 195 passed, 0 failed, 8 POSIX-only tests excluded. Wine is not native Windows and does not prove NTFS or Windows Sandbox behavior.",
-  "posix_only_tests": [
+  "windows_suite_reason": "Native Windows 11 execution has not been performed. The Windows-target test binaries were executed under Wine 11.21: 195 passed, 0 failed, 8 Windows-excluded tests (6 POSIX-only, 2 Windows coverage gaps). Wine is not native Windows and does not prove NTFS or Windows Sandbox behavior.",
+  "windows_excluded_tests": [
     "litric-agent/tests/agent_e2e.rs::launch_refuses_politely_without_a_windows_launcher",
     "litric-cli/tests/safeos_launch_verify.rs::a_valid_request_writes_a_locked_down_config_and_stops_at_the_platform_gate",
     "litric-cli/tests/safeos_launch_verify.rs::every_readiness_blocker_is_named_and_reevaluated",
@@ -263,7 +268,8 @@ cargo test --workspace --all-targets --target x86_64-pc-windows-gnu  # under Win
 ```
 
 Result at this revision: 203/203 native tests passed on Linux x86_64 (POSIX
-host); 195/195 Windows-target tests passed under Wine 11.21 with 8 POSIX-only
-tests excluded. Windows check and clippy are clean with `-D warnings`. The count
-and per-crate breakdown live in `docs/MEMORY/build.md`; update both together.
-Native Windows execution and NTFS/Sandbox behavior remain `UNPROVEN`.
+host); 195/195 Windows-target tests passed under Wine 11.21 with 8 Windows-excluded
+tests (6 POSIX-only, 2 coverage gaps). Windows check and clippy are clean with
+`-D warnings`. The count and per-crate breakdown live in `docs/MEMORY/build.md`;
+update both together. Native Windows execution and NTFS/Sandbox behavior remain
+`UNPROVEN`.

@@ -5,8 +5,9 @@ Binary: `litric` (`crates/litric-cli`). Library: `litric_cli::client`
 (15 tests, real binary against a real daemon) plus `tests/safeos_launch_verify.rs`
 (4 POSIX-only tests) and `tests/platform_evidence.rs` (2 portable evidence-sync
 tests). The Windows-target suite passed 195/195 under Wine 11.21, with 8
-POSIX-only tests excluded; native Windows execution is still UNPROVEN. See the
-readiness doc's `test_evidence` block.
+Windows-excluded tests (6 POSIX-only, 2 coverage gaps); native Windows execution
+is still UNPROVEN. See `docs/WINDOWS_WINE_TESTING.md` and the readiness doc's
+`test_evidence` block.
 
 ## Behaviour
 

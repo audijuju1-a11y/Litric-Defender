@@ -158,17 +158,20 @@ pub fn capabilities() -> Value {
 pub const SUITE_EXECUTED_ON: &str = "Linux x86_64 (POSIX host)";
 pub const WINDOWS_SUITE_EXECUTION: &str = "UNPROVEN";
 pub const WINDOWS_SUITE_REASON: &str =
-    "Native Windows 11 execution has not been performed. The Windows-target test binaries were executed under Wine 11.21: 195 passed, 0 failed, 8 POSIX-only tests excluded. Wine is not native Windows and does not prove NTFS or Windows Sandbox behavior.";
+    "Native Windows 11 execution has not been performed. The Windows-target test binaries were executed under Wine 11.21: 195 passed, 0 failed, 8 Windows-excluded tests (6 POSIX-only, 2 Windows coverage gaps). Wine is not native Windows and does not prove NTFS or Windows Sandbox behavior.";
 pub const WINE_SUITE_EXECUTED_ON: &str =
     "Wine 11.21 (Linux x86_64), target x86_64-pc-windows-gnu";
-pub const WINE_SUITE_RESULT: &str = "195 passed; 0 failed; 8 POSIX-only tests excluded";
+pub const WINE_SUITE_RESULT: &str =
+    "195 passed; 0 failed; 8 Windows-excluded tests (6 POSIX-only, 2 Windows coverage gaps)";
 pub const WINE_SUITE_SCOPE: &str =
     "Windows ABI under Wine; not native Windows 11, NTFS, or Windows Sandbox guest evidence";
 
-/// Tests excluded on Windows because they use POSIX-only process/file semantics.
-/// Every id must also carry a `// POSIX-ONLY-TEST:` marker in its source file;
-/// `platform_evidence` fails if this list, the markers or the readiness doc drift.
-pub const POSIX_ONLY_TESTS: &[&str] = &[
+/// Tests excluded from the Windows target. Six test non-Windows platform
+/// behavior; two are Windows coverage gaps (file-id dedupe is not implemented
+/// and the symlink fixture needs privileges), not passing tests. Every id must
+/// carry a `// POSIX-ONLY-TEST:` or `// WINDOWS-EXCLUDED-TEST:` marker in its
+/// source file; `platform_evidence` checks this list, the markers and the doc.
+pub const WINDOWS_EXCLUDED_TESTS: &[&str] = &[
     "litric-agent/tests/agent_e2e.rs::launch_refuses_politely_without_a_windows_launcher",
     "litric-cli/tests/safeos_launch_verify.rs::a_valid_request_writes_a_locked_down_config_and_stops_at_the_platform_gate",
     "litric-cli/tests/safeos_launch_verify.rs::every_readiness_blocker_is_named_and_reevaluated",
@@ -244,7 +247,7 @@ pub fn readiness_json() -> Value {
             "wine_suite_scope": WINE_SUITE_SCOPE,
             "windows_suite_execution": WINDOWS_SUITE_EXECUTION,
             "windows_suite_reason": WINDOWS_SUITE_REASON,
-            "posix_only_tests": POSIX_ONLY_TESTS,
+            "windows_excluded_tests": WINDOWS_EXCLUDED_TESTS,
             "unverified_capabilities": unverified
         }
     })
@@ -1146,7 +1149,7 @@ rule Eicar.Test {
             "UNPROVEN"
         );
         assert!(
-            r.body["test_evidence"]["posix_only_tests"]
+            r.body["test_evidence"]["windows_excluded_tests"]
                 .as_array()
                 .map(|t| t.len())
                 .unwrap_or(0)

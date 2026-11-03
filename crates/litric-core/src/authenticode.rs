@@ -110,15 +110,13 @@ fn find_certificates(blob: &[u8]) -> Vec<&[u8]> {
                 let body = &blob[i + hdr_len..i + hdr_len + len];
                 // A certificate body begins with a tbsCertificate SEQUENCE whose
                 // first element is [0] EXPLICIT version (0xA0) or a serial INTEGER.
-                if body.first() == Some(&0x30) {
-                    let inner = &body[..];
-                    if body.len() > 8
-                        && (inner.get(2) == Some(&0xA0) || inner.get(2) == Some(&0x02))
-                    {
-                        out.push(body);
-                        i += hdr_len + len;
-                        continue;
-                    }
+                if body.first() == Some(&0x30)
+                    && body.len() > 8
+                    && (body.get(2) == Some(&0xA0) || body.get(2) == Some(&0x02))
+                {
+                    out.push(body);
+                    i += hdr_len + len;
+                    continue;
                 }
             }
         }

@@ -362,10 +362,10 @@ pub fn parse(data: &[u8]) -> Result<PeInfo, ParseError> {
     let num_dirs = r.u32_at(opt + num_dirs_off).unwrap_or(0).min(16) as usize;
 
     let mut dirs = [(0u32, 0u32); 16];
-    for i in 0..num_dirs {
+    for (i, slot) in dirs.iter_mut().take(num_dirs).enumerate() {
         let off = opt + dirs_off + i * 8;
         if let (Some(va), Some(sz)) = (r.u32_at(off), r.u32_at(off + 4)) {
-            dirs[i] = (va, sz);
+            *slot = (va, sz);
         }
     }
 
@@ -414,7 +414,19 @@ pub fn parse(data: &[u8]) -> Result<PeInfo, ParseError> {
     let mut delay_imports = Vec::new();
     let mut func_total = 0usize;
     if dirs[DIR_IMPORT].0 != 0 {
-        parse_imports(&r, &sections, size_of_headers, dirs[DIR_IMPORT], is_64, image_base, &mut imports, &mut func_total)?;
+        let mut sink = ImportSink {
+            dlls: &mut imports,
+            func_total: &mut func_total,
+        };
+        parse_imports(
+            &r,
+            &sections,
+            size_of_headers,
+            dirs[DIR_IMPORT],
+            is_64,
+            image_base,
+            &mut sink,
+        )?;
     }
     if dirs[DIR_DELAY_IMPORT].0 != 0 {
         parse_delay_imports(&r, &rva, &sections, dirs[DIR_DELAY_IMPORT], image_base, &mut delay_imports);
@@ -548,6 +560,12 @@ pub fn parse(data: &[u8]) -> Result<PeInfo, ParseError> {
     })
 }
 
+/// Collects import results without growing the argument list of the parser.
+struct ImportSink<'a> {
+    dlls: &'a mut Vec<ImportedDll>,
+    func_total: &'a mut usize,
+}
+
 fn parse_imports(
     r: &Reader<'_>,
     sections: &[Section],
@@ -555,8 +573,7 @@ fn parse_imports(
     dir: (u32, u32),
     is_64: bool,
     image_base: u64,
-    out: &mut Vec<ImportedDll>,
-    func_total: &mut usize,
+    sink: &mut ImportSink<'_>,
 ) -> Result<(), ParseError> {
     let Some(mut desc_off) = rva_to_offset(sections, size_of_headers, dir.0) else {
         return Ok(());
@@ -640,19 +657,19 @@ fn parse_imports(
                     break;
                 }
                 functions.push(fname);
-                if *func_total + functions.len() >= MAX_IMPORT_FUNCS * 4 {
+                if *sink.func_total + functions.len() >= MAX_IMPORT_FUNCS * 4 {
                     break;
                 }
             }
         }
-        *func_total += functions.len();
-        out.push(ImportedDll {
+        *sink.func_total += functions.len();
+        sink.dlls.push(ImportedDll {
             name,
             functions,
             ordinal_count: ordinals,
         });
         desc_off += 20;
-        if *func_total >= MAX_IMPORT_FUNCS * 4 {
+        if *sink.func_total >= MAX_IMPORT_FUNCS * 4 {
             break;
         }
     }
@@ -858,7 +875,7 @@ fn find_utf16_value(blob: &[u8], key: &str) -> Option<String> {
     let mut i = search_from;
     while i + 2 <= end {
         let unit = u16::from_le_bytes([blob[i], blob[i + 1]]);
-        if unit >= 2 && unit < 0x400 && i + 2 + unit as usize <= blob.len() {
+        if (2..0x400).contains(&unit) && i + 2 + unit as usize <= blob.len() {
             let cand = Reader::new(&blob[i + 2..]);
             let chars = (unit as usize) / 2;
             if let Some(s) = cand.utf16_at(0, chars) {

@@ -146,7 +146,7 @@ impl Readiness {
         if !facts.known {
             blockers.push(Blocker {
                 component: "platform_agent",
-                reason: "no host facts have been collected in this build".into(),
+                reason: "no host facts have been reported by litric-agent".into(),
                 remediation: "install and run the Litric Windows platform agent; \
                               SafeOS cannot evaluate capabilities without it"
                     .into(),
@@ -193,6 +193,16 @@ impl Readiness {
                 component: "virtualization",
                 reason: "hardware virtualization (VT-x/AMD-V) is not enabled".into(),
                 remediation: "enable virtualization in firmware; Litric will not change firmware settings".into(),
+            });
+        }
+
+        if !facts.sandbox_feature_present {
+            blockers.push(Blocker {
+                component: "windows_sandbox",
+                reason: "Windows Sandbox feature is not installed or not enabled".into(),
+                remediation: "enable Windows Sandbox in Windows Features (requires a restart); \
+                              Litric will not change Windows features for you"
+                    .into(),
             });
         }
 
@@ -359,6 +369,20 @@ mod tests {
         let r = Readiness::evaluate(&good());
         assert!(r.hyperv_usable && r.sandbox_usable && r.gateway_usable);
         assert!(r.blockers.is_empty());
+    }
+
+    #[test]
+    fn missing_sandbox_feature_is_a_named_blocker() {
+        let mut f = good();
+        f.sandbox_feature_present = false;
+        let r = Readiness::evaluate(&f);
+        assert!(!r.sandbox_usable);
+        let b = r
+            .blockers
+            .iter()
+            .find(|b| b.component == "windows_sandbox")
+            .expect("sandbox blocker");
+        assert!(b.reason.contains("not installed or not enabled"));
     }
 
     #[test]

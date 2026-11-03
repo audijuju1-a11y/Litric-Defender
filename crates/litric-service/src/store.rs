@@ -208,8 +208,10 @@ mod tests {
 
     #[test]
     fn validation_rejects_absurd_retention() {
-        let mut s = Settings::default();
-        s.retention_days = 99_999;
+        let s = Settings {
+            retention_days: 99_999,
+            ..Default::default()
+        };
         assert!(s.validate().is_err());
     }
 }

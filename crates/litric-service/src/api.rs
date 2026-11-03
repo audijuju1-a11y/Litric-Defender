@@ -584,13 +584,9 @@ fn safeos_launch(state: &AppState, body: &[u8], query: &str) -> ApiResponse {
     let Some(raw) = v["path"].as_str() else {
         return bad_request("field `path` is required");
     };
-    let path = match std::fs::canonicalize(raw) {
-        Ok(p) => p,
-        Err(e) => return bad_request(format!("cannot access `{raw}`: {e}")),
-    };
-    if !path.is_file() {
-        return bad_request("`path` must be a regular file");
-    }
+    // Pass the raw path through: `prepare` rejects drive roots and user profiles
+    // before access, then canonicalises and requires a regular file.
+    let path = PathBuf::from(raw);
     let facts = state
         .host_facts
         .lock()

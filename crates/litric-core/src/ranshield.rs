@@ -712,7 +712,7 @@ mod tests {
         let mut max_level = Level::Normal;
         for i in 0..80 {
             let src = PathBuf::from(format!("/home/me/docs/file{i}.txt"));
-            let dst = PathBuf::from(format!("/home/me/archive/backup.7z"));
+            let dst = PathBuf::from("/home/me/archive/backup.7z");
             let a = s.observe(FsEvent::Rename {
                 pid: 42,
                 from: src,

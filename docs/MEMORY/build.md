@@ -14,7 +14,8 @@
 cargo test                                   # all crates
 cargo test -p litric-safeos                  # one crate
 cargo build --release                        # must have zero warnings
-cargo check --target x86_64-pc-windows-gnu -p litric-core
+cargo check --workspace --all-targets --target x86_64-pc-windows-gnu
+cargo clippy --workspace --all-targets --target x86_64-pc-windows-gnu -- -D warnings
 ```
 
 Run the daemon:
@@ -27,8 +28,8 @@ Run the daemon:
 
 ## Test counts at last verification
 
-83 core + 19 service + 8 client + 12 cli end-to-end + 45 safeos + 7 agent +
-5 agent end-to-end = 179. Re-run and update this line; do not assume.
+83 core + 19 service + 8 client + 15 cli end-to-end + 49 safeos + 7 agent +
+5 agent end-to-end = 186. Re-run and update this line; do not assume.
 
 ## Environment constraints
 

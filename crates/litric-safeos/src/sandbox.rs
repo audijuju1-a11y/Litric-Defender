@@ -186,23 +186,70 @@ fn nanos() -> u128 {
         .unwrap_or(0)
 }
 
+/// Rejects obviously unsafe paths before touching the filesystem, so a drive
+/// root or a user profile is refused even when it does not exist here.
+pub fn unsafe_raw_path(raw: &str) -> Option<&'static str> {
+    let lower = raw.to_ascii_lowercase();
+    let normalized = lower.replace('/', "\\");
+    let trimmed = normalized.trim_end_matches('\\');
+    if trimmed.len() == 2 && trimmed.ends_with(':') {
+        return Some("refusing to map an entire volume into the sandbox");
+    }
+    if lower == "/" || lower == "\\" {
+        return Some("refusing to map an entire volume into the sandbox");
+    }
+    if normalized.contains("\\users\\") || lower.contains("/home/") {
+        return Some("refusing to map a user profile into the sandbox");
+    }
+    None
+}
+
+/// Names that Windows would interpret as a path, a device or a different name.
+fn validate_guest_name(name: &str) -> Result<(), String> {
+    const BAD: &[char] = &['\\', '/', ':', '*', '?', '"', '<', '>', '|'];
+    if name.is_empty() || name == "." || name == ".." {
+        return Err("file name is not a usable application name".into());
+    }
+    if name.chars().any(|c| BAD.contains(&c) || c.is_control()) {
+        return Err(
+            "file name contains characters Windows treats as a path separator or control \
+             character; rename the file before launching"
+                .into(),
+        );
+    }
+    if name.ends_with('.') || name.ends_with(' ') {
+        return Err("file name ends with a dot or space; Windows would rename it".into());
+    }
+    let stem = name.split('.').next().unwrap_or(name).to_ascii_uppercase();
+    if matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL") {
+        return Err("file name is a reserved Windows device name".into());
+    }
+    if (stem.starts_with("COM") || stem.starts_with("LPT"))
+        && stem.len() == 4
+        && stem.as_bytes()[3].is_ascii_digit()
+    {
+        return Err("file name is a reserved Windows device name".into());
+    }
+    Ok(())
+}
+
 /// Runtime readiness check + locked-down `.wsb` generation. Never executes.
 pub fn prepare(
     facts: &HostFacts,
     app: &Path,
     workdir: &Path,
 ) -> Result<PreparedLaunch, LaunchError> {
+    if let Some(reason) = unsafe_raw_path(&app.to_string_lossy()) {
+        return Err(LaunchError::Invalid(reason.into()));
+    }
+
     let readiness = Readiness::evaluate(facts);
     if !readiness.sandbox_usable {
-        let reasons = if !facts.known {
-            vec!["no host facts have been reported; run litric-agent on Windows".to_string()]
-        } else {
-            readiness
-                .blockers
-                .iter()
-                .map(|b| format!("{}: {}", b.component, b.reason))
-                .collect()
-        };
+        let reasons = readiness
+            .blockers
+            .iter()
+            .map(|b| format!("{}: {}", b.component, b.reason))
+            .collect();
         return Err(LaunchError::NotReady(reasons));
     }
 
@@ -219,9 +266,10 @@ pub fn prepare(
         .ok_or_else(|| LaunchError::Invalid("file has no parent directory".into()))?;
     let name = app
         .file_name()
-        .ok_or_else(|| LaunchError::Invalid("file has no name".into()))?
-        .to_string_lossy()
-        .to_string();
+        .and_then(|n| n.to_str())
+        .ok_or_else(|| LaunchError::Invalid("file name is not valid UTF-8".into()))?;
+    validate_guest_name(name).map_err(LaunchError::Invalid)?;
+    let name = name.to_string();
 
     // The app is mapped read-only at C:\Litric\input\0 inside the guest.
     let command = format!("\"C:\\Litric\\input\\0\\{name}\"");
@@ -349,7 +397,8 @@ mod tests {
     #[test]
     fn launch_capability_matches_the_compile_time_gate() {
         assert_eq!(LAUNCH_IMPLEMENTED, cfg!(windows));
-        assert!(!LAUNCH_VERIFIED_ON_WINDOWS);
+        // LAUNCH_VERIFIED_ON_WINDOWS stays false and is asserted through the
+        // status API in crates/litric-cli/tests/safeos_launch_verify.rs.
     }
 
     fn good_facts() -> HostFacts {
@@ -423,6 +472,51 @@ mod tests {
         assert!(prepared.command.contains("sample.exe"));
         assert!(xml.contains("sample.exe"));
         assert!(!xml.contains("<Networking>Enable</Networking>"));
+    }
+
+    #[test]
+    fn drive_roots_and_user_profiles_are_refused_before_access() {
+        let (dir, app) = fixture("unsafe");
+        for (raw, needle) in [
+            (r"C:\", "entire volume"),
+            ("/", "entire volume"),
+            (r"C:\Users\alice\app.exe", "user profile"),
+            ("/home/alice/app.exe", "user profile"),
+        ] {
+            match prepare(&good_facts(), Path::new(raw), &dir.join("cfg")) {
+                Err(LaunchError::Invalid(m)) => assert!(m.contains(needle), "{raw}: {m}"),
+                other => panic!("{raw}: expected Invalid, got {other:?}"),
+            }
+        }
+        let _ = app;
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn a_file_name_with_separators_cannot_escape_the_mapping() {
+        let (dir, _app) = fixture("escape");
+        let evil = dir.join(r"evil\..\..\Windows\cmd.exe");
+        std::fs::write(&evil, b"MZ").unwrap();
+        match prepare(&good_facts(), &evil, &dir.join("cfg")) {
+            Err(LaunchError::Invalid(m)) => assert!(m.contains("path separator"), "{m}"),
+            other => panic!("expected Invalid, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn reserved_device_names_are_refused() {
+        for name in ["CON", "con.txt", "NUL.exe", "COM1.bin", "LPT9.dll"] {
+            let (dir, _) = fixture("reserved");
+            let app = dir.join(name);
+            std::fs::write(&app, b"MZ").unwrap();
+            assert!(
+                matches!(
+                    prepare(&good_facts(), &app, &dir.join("cfg")),
+                    Err(LaunchError::Invalid(_))
+                ),
+                "{name} should be refused"
+            );
+        }
     }
 
     #[test]

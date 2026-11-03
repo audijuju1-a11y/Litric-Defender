@@ -185,10 +185,17 @@ pub fn detect(data: &[u8]) -> FileFormat {
     if data.starts_with(b"{\\rtf") {
         return FileFormat::Rtf;
     }
-    if data.len() > 76 && data[0] == 0x4C && data[1] == 0x00 && data[2] == 0x00 && data[3] == 0x00 {
-        if data[4] == 0x01 && data[5] == 0x14 && data[6] == 0x02 && data[7] == 0x00 {
-            return FileFormat::Lnk;
-        }
+    if data.len() > 76
+        && data[0] == 0x4C
+        && data[1] == 0x00
+        && data[2] == 0x00
+        && data[3] == 0x00
+        && data[4] == 0x01
+        && data[5] == 0x14
+        && data[6] == 0x02
+        && data[7] == 0x00
+    {
+        return FileFormat::Lnk;
     }
     if data.starts_with(b"regf") {
         return FileFormat::RegistryHive;

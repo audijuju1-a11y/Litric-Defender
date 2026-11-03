@@ -12,7 +12,7 @@ Crate: `crates/litric-safeos` (39 tests). Integrated into the daemon at
 | `policy.rs` | `decide(level, BackendSet)` -> fail-closed `Action` | 6 |
 | `broker.rs` | staged import/export, hash verify, scan gate | 9 |
 | `journal.rs` | JSONL session journal, recovery, cleanup planner | 5 |
-| `sandbox.rs` | `.wsb` generation, readiness-gated prepare, cfg(windows) launch | 11 |
+| `sandbox.rs` | `.wsb` generation, readiness-gated prepare, path/name safety, cfg(windows) launch | 15 |
 
 ## Invariants (do not break)
 

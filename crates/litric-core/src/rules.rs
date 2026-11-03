@@ -690,8 +690,7 @@ fn utf8_len(first: u8) -> usize {
 
 fn validate_refs(cond: &Cond, strings: &[RuleString], _src: &str) -> Result<(), String> {
     let has = |id: &str| {
-        if id.ends_with('*') {
-            let prefix = &id[..id.len() - 1];
+        if let Some(prefix) = id.strip_suffix('*') {
             strings.iter().any(|s| s.id.starts_with(prefix))
         } else {
             strings.iter().any(|s| s.id == id)
@@ -1543,9 +1542,7 @@ impl RuleSet {
                 }
             }
             let slot = &mut counts[p.rule][p.string];
-            if *slot < u32::MAX {
-                *slot += 1;
-            }
+            *slot = slot.saturating_add(1);
         };
 
         self.ac_raw.search(data, &mut |pid, end| {
@@ -1570,9 +1567,7 @@ impl RuleSet {
                 }
             }
             let slot = &mut counts[p.rule][p.string];
-            if *slot < u32::MAX {
-                *slot += 1;
-            }
+            *slot = slot.saturating_add(1);
         });
         if let Some(lower) = &lower {
             self.ac_lower.search(lower, &mut |pid, end| {
@@ -1596,9 +1591,7 @@ impl RuleSet {
                     }
                 }
                 let slot = &mut counts[p.rule][p.string];
-                if *slot < u32::MAX {
-                    *slot += 1;
-                }
+                *slot = slot.saturating_add(1);
             });
         }
         let _ = &mut hit;

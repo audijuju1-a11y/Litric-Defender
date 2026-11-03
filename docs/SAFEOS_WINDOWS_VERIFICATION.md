@@ -86,10 +86,51 @@ Inside the sandbox window:
 | facts with 2 GB RAM / 5 GB free disk | 409 + memory/disk blocker |
 | app inside a user profile (e.g. `C:\Users\you\app.exe`) | 400 invalid launch request (never maps profiles) |
 | launch on a Linux build | HTTP 501 "requires a Windows build" |
+| filename containing `\`, `/`, `:` or a reserved device name | 400 path/name refusal |
 | `launch` a directory | 400 "must be a regular file" |
 
 Also confirm the host is untouched after refusals: no new Hyper-V VM, no new
 WinNAT network (`Get-NetNat`), no Windows feature changed.
+
+## 4a. What was demonstrated on the non-Windows verification host (2026-11-03)
+
+These are real captures from the `litric` binary against a real `litricd`, with
+facts posted exactly as `litric-agent` posts them. Every refusal exited **2**.
+
+| Case | HTTP | Daemon message |
+|---|---|---|
+| No facts reported | 409 | `platform_agent: no host facts have been reported by litric-agent` |
+| Build 21999 | 409 | `windows_build: Windows build 21999 is older than the supported minimum 22000` |
+| Virtualization off | 409 | `virtualization: hardware virtualization (VT-x/AMD-V) is not enabled` |
+| Sandbox feature absent | 409 | `windows_sandbox: Windows Sandbox feature is not installed or not enabled` |
+| RAM 2048 MB | 409 | `memory: 2048 MB installed is below the 4096 MB minimum for isolation` |
+| Free disk 5120 MB | 409 | `disk: 5120 MB free is below the 20480 MB needed for a managed VM` |
+| Facts fixed on the same daemon | 501 | `Windows Sandbox launch requires a Windows build` (readiness re-evaluated, no cache) |
+| Drive root `C:\` | 400 | `refusing to map an entire volume into the sandbox` |
+| User profile `C:\Users\alice\app.exe` | 400 | `refusing to map a user profile into the sandbox` |
+| Directory target | 400 | `path must be a regular file; directories are not supported` |
+| Missing target | 400 | `cannot access ...: No such file or directory` |
+| Filename `evil\..\..\Windows\cmd.exe` | 400 | `file name contains characters Windows treats as a path separator...` |
+| Valid app (this Linux build) | 501 | `Windows Sandbox launch requires a Windows build` |
+| Valid app with `--wait --json` | 501 | same message; `wait=true` reached the daemon |
+
+The valid request wrote a `.wsb` before the platform gate, containing
+`<Networking>Disable</Networking>`, clipboard/audio/video/printer/vGPU disabled,
+`<ReadOnly>true</ReadOnly>`, `<SandboxFolder>C:\Litric\input\0</SandboxFolder>`, and
+`<Command>"C:\Litric\input\0\sample.exe"</Command>`.
+
+`safeos status --json` on this build reported
+`windows_sandbox_launch_implemented=false`, `windows_sandbox_launch_verified=false`,
+and `host_supported=true` / `available=false` for the sandbox backend.
+
+Drive root and user profile are rejected from the **raw path before access**, so
+the rule is testable here without those paths existing. The guest filename rule
+is what keeps a hostile filename from walking out of the read-only mapping.
+
+What this does **not** prove: that `WindowsSandbox.exe` starts, that the guest
+actually shows no network, or that the mapped folder is read-only to the guest.
+Only the real-host steps above can prove those, which is why
+`LAUNCH_VERIFIED_ON_WINDOWS` remains `false`.
 
 ## 5. Record the result
 

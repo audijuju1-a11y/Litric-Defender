@@ -422,8 +422,12 @@ fn run(cli: Cli) -> Result<ExitCode, Box<dyn std::error::Error>> {
                     Ok(ExitCode::SUCCESS)
                 }
                 SafeosCmd::Launch { file, wait, json } => {
-                    let target = canonical(&file)?;
-                    let v = c.safeos_launch(&target.display().to_string(), wait)?;
+                    // Keep the raw path when it cannot be resolved here so the
+                    // daemon can reject drive roots/profiles with its own rule.
+                    let target = std::fs::canonicalize(&file)
+                        .map(|p| p.display().to_string())
+                        .unwrap_or_else(|_| file.display().to_string());
+                    let v = c.safeos_launch(&target, wait)?;
                     if json {
                         println!("{}", serde_json::to_string_pretty(&v)?);
                     } else {

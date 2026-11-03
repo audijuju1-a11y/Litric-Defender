@@ -110,7 +110,7 @@ impl Journal {
 
     pub fn latest(&self, id: &str) -> io::Result<Option<SessionRecord>> {
         let (records, _) = self.records()?;
-        Ok(records.into_iter().filter(|r| r.id == id).last())
+        Ok(records.into_iter().rfind(|r| r.id == id))
     }
 
     /// Sessions that never reached a terminal state. Their storage must be
@@ -163,8 +163,7 @@ impl Journal {
     }
 
     fn append(&self, record: &SessionRecord) -> io::Result<()> {
-        let mut line = serde_json::to_string(record)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+        let mut line = serde_json::to_string(record).map_err(io::Error::other)?;
         line.push('\n');
         let mut f = OpenOptions::new()
             .create(true)

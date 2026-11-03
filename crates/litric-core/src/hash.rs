@@ -32,10 +32,10 @@ impl Digest32 {
             return None;
         }
         let mut out = [0u8; 32];
-        for i in 0..32 {
+        for (i, slot) in out.iter_mut().enumerate() {
             let hi = hex_val(*bytes.get(i * 2)?)?;
             let lo = hex_val(*bytes.get(i * 2 + 1)?)?;
-            out[i] = (hi << 4) | lo;
+            *slot = (hi << 4) | lo;
         }
         Some(Digest32(out))
     }

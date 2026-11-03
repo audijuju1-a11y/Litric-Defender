@@ -850,17 +850,18 @@ fn analyze_scripts(input: &AnalysisInput<'_>, out: &mut Vec<Signal>) {
             ));
         }
     }
-    if kind == ScriptKind::Batch {
-        if has(&hay, "powershell") && (has(&hay, "-enc") || has(&hay, "hidden")) {
-            out.push(Signal::new(
-                "script.batch_powershell_chain",
-                22,
-                Confidence::Weak,
-                "Batch file launches hidden PowerShell",
-                "The batch script hands off to PowerShell with hidden/encoded arguments.",
-                &["T1059.003", "T1059.001"],
-            ));
-        }
+    if kind == ScriptKind::Batch
+        && has(&hay, "powershell")
+        && (has(&hay, "-enc") || has(&hay, "hidden"))
+    {
+        out.push(Signal::new(
+            "script.batch_powershell_chain",
+            22,
+            Confidence::Weak,
+            "Batch file launches hidden PowerShell",
+            "The batch script hands off to PowerShell with hidden/encoded arguments.",
+            &["T1059.003", "T1059.001"],
+        ));
     }
 }
 

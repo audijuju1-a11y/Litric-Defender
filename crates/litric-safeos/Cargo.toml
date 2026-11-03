@@ -1,0 +1,12 @@
+[package]
+name = "litric-safeos"
+description = "Litric SafeOS portable safety core: risk, fail-closed policy, file broker, journal, sandbox configuration"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+litric-core = { path = "../litric-core" }
+serde.workspace = true
+serde_json.workspace = true

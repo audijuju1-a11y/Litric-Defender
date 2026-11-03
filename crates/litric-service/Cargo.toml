@@ -16,6 +16,7 @@ path = "src/main.rs"
 
 [dependencies]
 litric-core = { path = "../litric-core" }
+litric-safeos = { path = "../litric-safeos" }
 serde.workspace = true
 serde_json.workspace = true
 getrandom.workspace = true

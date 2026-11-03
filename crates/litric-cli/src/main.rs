@@ -119,6 +119,11 @@ enum Command {
         #[command(subcommand)]
         cmd: DbCmd,
     },
+    /// SafeOS: risk assessment and isolation policy (daemon).
+    Safeos {
+        #[command(subcommand)]
+        cmd: SafeosCmd,
+    },
     /// Measure scan throughput (in-process).
     Bench {
         path: PathBuf,
@@ -153,6 +158,21 @@ enum QuarantineCmd {
         /// Required acknowledgement.
         #[arg(long)]
         confirm: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum SafeosCmd {
+    /// Show isolation backends and why they are or are not available.
+    Status {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Classify an application and show the fail-closed execution decision.
+    Assess {
+        file: PathBuf,
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -376,6 +396,36 @@ fn run(cli: Cli) -> Result<ExitCode, Box<dyn std::error::Error>> {
                     c.quarantine_purge(&id)?;
                     println!("purged {id}");
                     Ok(ExitCode::SUCCESS)
+                }
+            }
+        }
+
+        Command::Safeos { cmd } => {
+            let c = Client::discover(addr.as_deref(), token_file.as_deref())?;
+            match cmd {
+                SafeosCmd::Status { json } => {
+                    let v = c.safeos_status()?;
+                    if json {
+                        println!("{}", serde_json::to_string_pretty(&v)?);
+                    } else {
+                        print!("{}", client::render_safeos_status(&v));
+                    }
+                    Ok(ExitCode::SUCCESS)
+                }
+                SafeosCmd::Assess { file, json } => {
+                    let target = canonical(&file)?;
+                    let v = c.safeos_assess(&target.display().to_string())?;
+                    if json {
+                        println!("{}", serde_json::to_string_pretty(&v)?);
+                    } else {
+                        print!("{}", client::render_safeos_assessment(&v));
+                    }
+                    let action = v["action"].as_str().unwrap_or("deny");
+                    Ok(if matches!(action, "deny" | "block_and_quarantine") {
+                        ExitCode::from(1)
+                    } else {
+                        ExitCode::SUCCESS
+                    })
                 }
             }
         }

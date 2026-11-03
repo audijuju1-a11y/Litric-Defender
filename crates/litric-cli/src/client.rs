@@ -201,6 +201,14 @@ impl Client {
         self.request("GET", "/api/v1/ranshield", None)
     }
 
+    pub fn safeos_status(&self) -> Result<Value, ClientError> {
+        self.request("GET", "/api/v1/safeos/status", None)
+    }
+
+    pub fn safeos_assess(&self, path: &str) -> Result<Value, ClientError> {
+        self.post("/api/v1/safeos/assess", &json!({ "path": path }))
+    }
+
     // --- transport -------------------------------------------------------
 
     fn post(&self, path: &str, body: &Value) -> Result<Value, ClientError> {
@@ -593,6 +601,96 @@ pub fn render_analysis(v: &Value) -> String {
         if let Some(n) = note.as_str() {
             s.push_str(&format!("note        : {n}\n"));
         }
+    }
+    s
+}
+
+pub fn render_safeos_status(v: &Value) -> String {
+    let mut s = String::new();
+    s.push_str(&format!(
+        "state        : {}\n",
+        v["state"].as_str().unwrap_or("unknown")
+    ));
+    s.push_str(&format!(
+        "host facts   : {}\n",
+        if v["host_facts_known"].as_bool().unwrap_or(false) {
+            "reported by agent"
+        } else {
+            "NOT COLLECTED (no platform agent in this build)"
+        }
+    ));
+    if let Some(backends) = v["backends"].as_array() {
+        s.push_str("backends:\n");
+        for b in backends {
+            s.push_str(&format!(
+                "  {:<18} {}  ({})\n",
+                b["kind"].as_str().unwrap_or("?"),
+                if b["available"].as_bool().unwrap_or(false) {
+                    "available  "
+                } else {
+                    "UNAVAILABLE"
+                },
+                b["reason"].as_str().unwrap_or("")
+            ));
+        }
+    }
+    if let Some(blockers) = v["blockers"].as_array() {
+        for b in blockers {
+            s.push_str(&format!(
+                "blocker      : {} — {}\n",
+                b["component"].as_str().unwrap_or("?"),
+                b["reason"].as_str().unwrap_or("")
+            ));
+            if let Some(r) = b["remediation"].as_str() {
+                s.push_str(&format!("               fix: {r}\n"));
+            }
+        }
+    }
+    s.push_str(&format!(
+        "sandbox launch: {}\n",
+        if v["windows_sandbox_launch_implemented"].as_bool().unwrap_or(false) {
+            "implemented"
+        } else {
+            "NOT IMPLEMENTED (configuration only)"
+        }
+    ));
+    s
+}
+
+pub fn render_safeos_assessment(v: &Value) -> String {
+    let mut s = String::new();
+    s.push_str(&format!("file        : {}\n", v["path"].as_str().unwrap_or("?")));
+    s.push_str(&format!(
+        "level       : {} ({})  confidence {:.2}\n",
+        v["level"].as_u64().unwrap_or(0),
+        v["level_name"].as_str().unwrap_or("unknown"),
+        v["confidence"].as_f64().unwrap_or(0.0)
+    ));
+    s.push_str(&format!(
+        "verdict     : {} (score {})\n",
+        v["verdict"].as_str().unwrap_or("unknown"),
+        v["score"].as_u64().unwrap_or(0)
+    ));
+    s.push_str(&format!(
+        "action      : {}\n",
+        v["action"].as_str().unwrap_or("deny")
+    ));
+    s.push_str(&format!(
+        "rationale   : {}\n",
+        v["rationale"].as_str().unwrap_or("")
+    ));
+    for r in v["reasons"].as_array().into_iter().flatten() {
+        if let Some(r) = r.as_str() {
+            s.push_str(&format!("reason      : {r}\n"));
+        }
+    }
+    for e in v["evidence"].as_array().into_iter().flatten() {
+        if let Some(e) = e.as_str() {
+            s.push_str(&format!("evidence    : {e}\n"));
+        }
+    }
+    if let Some(r) = v["remediation"].as_str() {
+        s.push_str(&format!("remediation : {r}\n"));
     }
     s
 }

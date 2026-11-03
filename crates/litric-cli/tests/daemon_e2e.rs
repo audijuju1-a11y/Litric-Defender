@@ -248,6 +248,51 @@ fn wrong_token_is_rejected_with_guidance() {
 }
 
 #[test]
+fn safeos_status_reports_unavailable_backends_honestly() {
+    let d = start("safeos-status");
+    let out = d.run(&["safeos", "status"]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let text = stdout(&out);
+    assert!(text.contains("UNAVAILABLE"), "output: {text}");
+    assert!(text.contains("NOT COLLECTED"), "output: {text}");
+    assert!(text.contains("NOT IMPLEMENTED"), "output: {text}");
+}
+
+#[test]
+fn safeos_assess_blocks_malicious_sample() {
+    let d = start("safeos-malicious");
+    let dir = d.workdir("files");
+    let f = dir.join("eicar.com");
+    fs::write(
+        &f,
+        b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*",
+    )
+    .unwrap();
+    let out = d.run(&["safeos", "assess", f.to_str().unwrap()]);
+    assert_eq!(out.status.code(), Some(1), "stdout: {}", stdout(&out));
+    let text = stdout(&out);
+    assert!(text.contains("level       : 3"), "output: {text}");
+    assert!(text.contains("block_and_quarantine"), "output: {text}");
+}
+
+#[test]
+fn safeos_assess_denies_unknown_app_instead_of_host_execution() {
+    let d = start("safeos-unknown");
+    let dir = d.workdir("files");
+    let f = dir.join("notes.txt");
+    fs::write(&f, b"just some notes\n").unwrap();
+    let out = d.run(&["safeos", "assess", f.to_str().unwrap()]);
+    assert_eq!(out.status.code(), Some(1), "stdout: {}", stdout(&out));
+    let text = stdout(&out);
+    assert!(text.contains("level       : 1"), "output: {text}");
+    assert!(text.contains("action      : deny"), "output: {text}");
+    assert!(
+        text.contains("refusing to run an unverified application on the host"),
+        "output: {text}"
+    );
+}
+
+#[test]
 fn analyze_reports_detection_through_daemon() {
     let d = start("analyze");
     let dir = d.workdir("files");

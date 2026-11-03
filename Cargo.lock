@@ -386,12 +386,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "litric-safeos"
+version = "0.1.0"
+dependencies = [
+ "litric-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "litric-service"
 version = "0.1.0"
 dependencies = [
  "clap",
  "getrandom",
  "litric-core",
+ "litric-safeos",
  "serde",
  "serde_json",
  "tiny_http",

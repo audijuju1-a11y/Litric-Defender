@@ -8,6 +8,10 @@ use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 
 use litric_core::ranshield::{Assessment, FsEvent, Level, ProcessContext};
+use litric_core::threatdb::EntryKind;
+use litric_safeos::model::{backend_status, HostFacts, Readiness};
+use litric_safeos::policy::{decide, BackendSet};
+use litric_safeos::risk::{assess, ApplicationFacts, HashTrust};
 use litric_core::scan::{ScanLimits, Scanner};
 use serde_json::{json, Value};
 
@@ -98,6 +102,8 @@ pub fn dispatch(state: &AppState, method: &str, url: &str, body: &[u8]) -> ApiRe
         ("GET", ["api", "v1", "history"]) => ok(history_json(state)),
         ("GET", ["api", "v1", "ranshield"]) => ok(ranshield_json(state)),
         ("POST", ["api", "v1", "ranshield", "events"]) => ranshield_events(state, body),
+        ("GET", ["api", "v1", "safeos", "status"]) => ok(safeos_status()),
+        ("POST", ["api", "v1", "safeos", "assess"]) => safeos_assess(state, body),
         _ => not_found(format!("no route for {method} {path}")),
     }
 }
@@ -124,7 +130,15 @@ pub fn capabilities() -> Value {
         "memory_scan": false,
         "network_filter": false,
         "windows_security_center": false,
-        "windows_service_control_manager": false
+        "windows_service_control_manager": false,
+        "safeos_risk_assessment": true,
+        "safeos_fail_closed_policy": true,
+        "safeos_file_broker": true,
+        "safeos_session_journal": true,
+        "safeos_windows_sandbox_config": true,
+        "safeos_windows_sandbox_launch": false,
+        "safeos_hyperv_backend": false,
+        "safeos_network_gateway": false
     })
 }
 
@@ -379,6 +393,109 @@ fn analyze(state: &AppState, body: &[u8]) -> ApiResponse {
         })),
         Err(e) => err(500, format!("analysis failed: {e}")),
     }
+}
+
+// ---------------------------------------------------------------------------
+// SafeOS
+// ---------------------------------------------------------------------------
+
+/// Honest SafeOS capability report. No platform agent exists in this build, so
+/// every Windows-only backend reports unavailable rather than "assumed fine".
+fn safeos_status() -> Value {
+    let facts = HostFacts::unknown();
+    let readiness = Readiness::evaluate(&facts);
+    json!({
+        "state": "unavailable",
+        "host_facts_known": facts.known,
+        "platform_agent": "not implemented: no Windows platform agent reports host facts",
+        "backends": backend_status(&facts)
+            .iter()
+            .map(|b| json!({
+                "kind": b.kind,
+                "available": b.available,
+                "reason": b.reason,
+                "requires_windows": b.requires_windows,
+            }))
+            .collect::<Vec<_>>(),
+        "blockers": readiness
+            .blockers
+            .iter()
+            .map(|b| json!({
+                "component": b.component,
+                "reason": b.reason,
+                "remediation": b.remediation,
+            }))
+            .collect::<Vec<_>>(),
+        "windows_sandbox_launch_implemented": litric_safeos::sandbox::LAUNCH_IMPLEMENTED,
+        "hyperv_backend_implemented": false,
+        "network_gateway_implemented": false,
+    })
+}
+
+/// Classifies an application and returns the fail-closed execution decision.
+fn safeos_assess(state: &AppState, body: &[u8]) -> ApiResponse {
+    let v: Value = match serde_json::from_slice(body) {
+        Ok(v) => v,
+        Err(e) => return bad_request(format!("invalid JSON body: {e}")),
+    };
+    let Some(raw) = v["path"].as_str() else {
+        return bad_request("field `path` is required");
+    };
+    let path = match std::fs::canonicalize(raw) {
+        Ok(p) => p,
+        Err(e) => return bad_request(format!("cannot access `{raw}`: {e}")),
+    };
+    if !path.is_file() {
+        return bad_request("`path` must be a regular file");
+    }
+
+    let scanner = Scanner::new(state.engine.as_ref(), ScanLimits::default());
+    let report = match scanner.analyze_file(&path) {
+        Ok((report, _truncated)) => report,
+        Err(e) => return err(500, format!("analysis failed: {e}")),
+    };
+
+    let hash_trust = match state.engine.db().lookup(&report.sha256) {
+        Some(entry) => match entry.kind {
+            EntryKind::Malicious => HashTrust::Malicious,
+            EntryKind::Pua => HashTrust::Pua,
+            EntryKind::Trusted => HashTrust::Allowlisted,
+        },
+        None => HashTrust::Unknown,
+    };
+
+    let facts = ApplicationFacts {
+        verdict: report.verdict.as_str().to_string(),
+        score: report.score,
+        confidence: report.confidence,
+        signature_present: report
+            .pe
+            .as_ref()
+            .map(|p| !p.signers.is_empty())
+            .unwrap_or(false),
+        // Chain validation requires WinVerifyTrust and is not implemented here.
+        signature_chain_valid: false,
+        hash_trust,
+    };
+    let assessment = assess(&facts);
+    let decision = decide(assessment.level, &BackendSet::none());
+
+    ok(json!({
+        "path": path.display().to_string(),
+        "sha256": report.sha256.to_hex(),
+        "verdict": report.verdict.as_str(),
+        "score": report.score,
+        "level": assessment.level.number(),
+        "level_name": assessment.level.as_str(),
+        "confidence": assessment.confidence,
+        "rationale": assessment.rationale,
+        "evidence": assessment.evidence,
+        "action": decision.action.as_str(),
+        "reasons": decision.reasons,
+        "remediation": decision.remediation,
+        "isolation_available": false,
+        "note": "no isolation backend is present in this build; the decision is fail-closed",
+    }))
 }
 
 // ---------------------------------------------------------------------------

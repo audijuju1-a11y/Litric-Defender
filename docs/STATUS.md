@@ -127,7 +127,27 @@ Nothing in this file may be upgraded without the corresponding code and test.
 | Performance benchmarks | PARTIALLY IMPLEMENTED — CLI `bench` on Linux VM only |
 | Crash/recovery and event-loss tests | PLANNED |
 
-## 9. Summary
+## 10. SafeOS (application isolation)
+
+Checked against the actual code in `crates/litric-safeos`; the Windows half is
+BLOCKED in this environment (Linux, no Hyper-V/WFP/WDK).
+
+| Feature | State | Evidence / notes |
+|---|---|---|
+| Host facts model + readiness (RAM/disk/build/virtualization/NAT conflict) | TESTED | `model.rs`, 7 tests; facts must come from an agent, never guessed |
+| Risk classification L0-L3 with evidence and confidence | TESTED | `risk.rs`, 6 tests; unsigned ≠ malicious |
+| Fail-closed execution policy | TESTED | `policy.rs`, 6 tests; non-trusted levels can never run on host |
+| Secure file broker: staged import/export, SHA-256 verify, approval, scan gate | TESTED | `broker.rs`, 9 tests incl. symlink/traversal/ADS/overwrite |
+| Session journal, crash detection, idempotent cleanup planner | TESTED | `journal.rs`, 5 tests |
+| Windows Sandbox `.wsb` generation (network/redirect off, read-only maps) | TESTED | `sandbox.rs`, 6 tests |
+| Windows Sandbox launch | BLOCKED | requires a Windows 11 host; not written |
+| Hyper-V managed backend, VHDX lifecycle | BLOCKED | requires Windows + Hyper-V; not written |
+| Local network gateway, WFP, WinNAT integration | BLOCKED | requires Windows + admin; not written |
+| Guest behaviour monitoring / ETW correlation | BLOCKED | requires a running guest |
+| SafeLaunch UI, Explorer integration, installer | PLANNED | no Windows UI in this repository |
+| API integration (`/api/v1/safeos/status`, `/assess`) and CLI (`litric safeos`) | TESTED | through the real daemon in end-to-end tests |
+
+## 11. Summary
 
 Working and tested: the detection engine, rules, verdicts, quarantine, signed
 database, scan accounting, RansomShield decisions, CLI.

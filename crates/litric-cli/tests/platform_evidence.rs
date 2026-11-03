@@ -1,8 +1,9 @@
 //! Mechanical evidence-provenance checks.
 //!
-//! The suite has only been executed on Linux. A test may be Windows-excluded
-//! only if it carries an explicit `// POSIX-ONLY-TEST:` marker, appears in the
-//! readiness gate's `test_evidence`, and appears in the same list in
+//! The native suite runs on Linux; the Windows-target suite also runs under
+//! Wine, which is not native Windows. A test may be Windows-excluded only if it
+//! carries an explicit `// POSIX-ONLY-TEST:` marker, appears in the readiness
+//! gate's `test_evidence`, and appears in the same list in
 //! `docs/SAFEOS_READINESS.md`. This file fails when any of those drift apart.
 //!
 //! This file itself is portable: it only reads source/doc text and the gate JSON.
@@ -13,7 +14,7 @@ use std::path::{Path, PathBuf};
 
 use litric_service::api::{
     readiness_json, POSIX_ONLY_TESTS, SUITE_EXECUTED_ON, WINDOWS_SUITE_EXECUTION,
-    WINDOWS_SUITE_REASON,
+    WINDOWS_SUITE_REASON, WINE_SUITE_EXECUTED_ON, WINE_SUITE_RESULT, WINE_SUITE_SCOPE,
 };
 use serde_json::Value;
 
@@ -160,6 +161,9 @@ fn posix_labels_match_source_gate_and_doc() {
         .collect();
     assert_eq!(gate_tests, expected, "gate POSIX list drifted from source");
     assert_eq!(evidence["suite_executed_on"], SUITE_EXECUTED_ON);
+    assert_eq!(evidence["wine_suite_executed_on"], WINE_SUITE_EXECUTED_ON);
+    assert_eq!(evidence["wine_suite_result"], WINE_SUITE_RESULT);
+    assert_eq!(evidence["wine_suite_scope"], WINE_SUITE_SCOPE);
     assert_eq!(evidence["windows_suite_execution"], WINDOWS_SUITE_EXECUTION);
     assert_eq!(evidence["windows_suite_reason"], WINDOWS_SUITE_REASON);
 

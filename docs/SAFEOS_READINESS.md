@@ -121,15 +121,23 @@ path; both need a real Windows host test and are reported `UNPROVEN` below.
 
 ## Test execution platform and POSIX-only labels
 
-The passing suite was executed on **Linux x86_64 (POSIX host)** on 2026-11-03.
-It has **not** been executed on Windows: the Windows target is cross-compiled
-(`cargo check --all-targets`) and clippy-checked, but no test binary has run
-there. Therefore Windows execution of the suite, and Windows/NTFS behavior of the
-restore publish path, are `UNPROVEN` in the gate rather than inferred from a
-successful cross-compile.
+The native suite (203 tests) was executed on **Linux x86_64 (POSIX host)** on
+2026-11-03. The Windows-target suite (195 tests; 8 POSIX-only tests excluded) was
+executed under **Wine 11.21** on the same Linux host, using
+`x86_64-pc-windows-gnu` test binaries. It passed 195/195 after fixing a real
+Windows-only bug: the file broker opened its verified temporary export file
+read-only and then called `sync_all`, which fails with access denied because
+Windows `FlushFileBuffers` requires a writable handle.
 
-The tests below are explicitly POSIX-only and are excluded on Windows. Their
-Windows counterparts are **UNPROVEN**, not passing:
+Wine executes the PE test binaries against Wine's Windows ABI, but it is **not
+native Windows 11**. It cannot prove NTFS behavior, native Windows APIs, or the
+Windows Sandbox guest boundary. The gate therefore keeps native Windows
+execution and Windows/NTFS restore semantics `UNPROVEN`; the Wine run is recorded
+separately in `test_evidence` rather than being promoted to native evidence.
+
+The tests below are explicitly POSIX-only and are excluded from both the Windows
+target build and the Wine run. Their Windows counterparts are **UNPROVEN**, not
+passing:
 
 - one agent end-to-end refusal expects the non-Windows 501 launch response;
 - four SafeOS launch end-to-end tests use non-Windows launch expectations and a
@@ -141,17 +149,20 @@ Windows counterparts are **UNPROVEN**, not passing:
 
 `crates/litric-cli/tests/platform_evidence.rs` fails if a Windows-excluded test
 lacks a `// POSIX-ONLY-TEST:` marker, if the marker list differs from
-`POSIX_ONLY_TESTS`/the gate, or if this document's machine-readable block
-differs from the gate. The gate's unverified map is derived from its own
-non-READY capabilities; the test also rejects any READY capability listed as
-unverified.
+`POSIX_ONLY_TESTS`/the gate, if the Wine evidence fields drift, or if this
+document's machine-readable block differs from the gate. The gate's unverified
+map is derived from its own non-READY capabilities; the test also rejects any
+READY capability listed as unverified.
 
 <!-- TEST-EVIDENCE-BEGIN -->
 ```json
 {
   "suite_executed_on": "Linux x86_64 (POSIX host)",
+  "wine_suite_executed_on": "Wine 11.21 (Linux x86_64), target x86_64-pc-windows-gnu",
+  "wine_suite_result": "195 passed; 0 failed; 8 POSIX-only tests excluded",
+  "wine_suite_scope": "Windows ABI under Wine; not native Windows 11, NTFS, or Windows Sandbox guest evidence",
   "windows_suite_execution": "UNPROVEN",
-  "windows_suite_reason": "No recorded run of the test suite on Windows; the Windows target is cross-compiled and clippy-checked only.",
+  "windows_suite_reason": "Native Windows 11 execution has not been performed. The Windows-target test binaries were executed under Wine 11.21: 195 passed, 0 failed, 8 POSIX-only tests excluded. Wine is not native Windows and does not prove NTFS or Windows Sandbox behavior.",
   "posix_only_tests": [
     "litric-agent/tests/agent_e2e.rs::launch_refuses_politely_without_a_windows_launcher",
     "litric-cli/tests/safeos_launch_verify.rs::a_valid_request_writes_a_locked_down_config_and_stops_at_the_platform_gate",
@@ -188,10 +199,11 @@ summary. Capability states are:
 * `READY` only for capabilities with passing automated tests on the platform
   recorded above: on-demand scan, quarantine, risk assessment, fail-closed
   policy, and sandbox config.
-* `UNPROVEN` for Windows execution of the test suite, Windows/NTFS quarantine
-  publish semantics, the Windows Sandbox launch on Windows, and the guest
-  runtime (networking, clipboard and read-only mapping have never been observed
-  in a running guest).
+* `UNPROVEN` for native Windows execution of the test suite, Windows/NTFS
+  quarantine publish semantics, the Windows Sandbox launch on Windows, and the
+  guest runtime (networking, clipboard and read-only mapping have never been
+  observed in a running guest). The 195/195 Wine ABI run is evidence about the
+  portable Windows target, not native Windows or NTFS.
 * `BLOCKED` for launch on a non-Windows build.
 * `NOT_IMPLEMENTED` for Hyper-V, the WFP/WinNAT gateway, guest behaviour
   monitoring, UI and installer.
@@ -247,9 +259,11 @@ runtime marked `UNPROVEN`.
 cargo test
 cargo check --workspace --all-targets --target x86_64-pc-windows-gnu
 cargo clippy --workspace --all-targets --target x86_64-pc-windows-gnu -- -D warnings
+cargo test --workspace --all-targets --target x86_64-pc-windows-gnu  # under Wine 11.21
 ```
 
-Result at this revision: 203 tests passed on Linux x86_64 (POSIX host), Windows
-check clean, Windows clippy
-clean with `-D warnings`. The count and per-crate breakdown live in
-`docs/MEMORY/build.md`; update both together.
+Result at this revision: 203/203 native tests passed on Linux x86_64 (POSIX
+host); 195/195 Windows-target tests passed under Wine 11.21 with 8 POSIX-only
+tests excluded. Windows check and clippy are clean with `-D warnings`. The count
+and per-crate breakdown live in `docs/MEMORY/build.md`; update both together.
+Native Windows execution and NTFS/Sandbox behavior remain `UNPROVEN`.

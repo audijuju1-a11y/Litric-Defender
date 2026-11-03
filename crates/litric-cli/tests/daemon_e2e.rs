@@ -255,7 +255,13 @@ fn safeos_status_reports_unavailable_backends_honestly() {
     let text = stdout(&out);
     assert!(text.contains("UNAVAILABLE"), "output: {text}");
     assert!(text.contains("NOT COLLECTED"), "output: {text}");
+    #[cfg(not(windows))]
     assert!(text.contains("NOT IMPLEMENTED"), "output: {text}");
+    #[cfg(windows)]
+    assert!(
+        text.contains("sandbox launch: implemented"),
+        "output: {text}"
+    );
 }
 
 #[test]

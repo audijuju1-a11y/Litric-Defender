@@ -158,7 +158,12 @@ pub fn capabilities() -> Value {
 pub const SUITE_EXECUTED_ON: &str = "Linux x86_64 (POSIX host)";
 pub const WINDOWS_SUITE_EXECUTION: &str = "UNPROVEN";
 pub const WINDOWS_SUITE_REASON: &str =
-    "No recorded run of the test suite on Windows; the Windows target is cross-compiled and clippy-checked only.";
+    "Native Windows 11 execution has not been performed. The Windows-target test binaries were executed under Wine 11.21: 195 passed, 0 failed, 8 POSIX-only tests excluded. Wine is not native Windows and does not prove NTFS or Windows Sandbox behavior.";
+pub const WINE_SUITE_EXECUTED_ON: &str =
+    "Wine 11.21 (Linux x86_64), target x86_64-pc-windows-gnu";
+pub const WINE_SUITE_RESULT: &str = "195 passed; 0 failed; 8 POSIX-only tests excluded";
+pub const WINE_SUITE_SCOPE: &str =
+    "Windows ABI under Wine; not native Windows 11, NTFS, or Windows Sandbox guest evidence";
 
 /// Tests excluded on Windows because they use POSIX-only process/file semantics.
 /// Every id must also carry a `// POSIX-ONLY-TEST:` marker in its source file;
@@ -206,7 +211,7 @@ pub fn readiness_json() -> Value {
         },
         "quarantine_windows_filesystem_semantics": {
             "state": "UNPROVEN",
-            "reason": "hard_link/create_new publish and occupied-destination behavior are portable APIs but have not been executed on Windows"
+            "reason": "hard_link/create_new publish and occupied-destination behavior passed under Wine's Windows ABI; native Windows/NTFS semantics remain unproven"
         },
         "safeos_hyperv_backend": { "state": "NOT_IMPLEMENTED" },
         "safeos_network_gateway": { "state": "NOT_IMPLEMENTED" },
@@ -234,6 +239,9 @@ pub fn readiness_json() -> Value {
         "capabilities": caps,
         "test_evidence": {
             "suite_executed_on": SUITE_EXECUTED_ON,
+            "wine_suite_executed_on": WINE_SUITE_EXECUTED_ON,
+            "wine_suite_result": WINE_SUITE_RESULT,
+            "wine_suite_scope": WINE_SUITE_SCOPE,
             "windows_suite_execution": WINDOWS_SUITE_EXECUTION,
             "windows_suite_reason": WINDOWS_SUITE_REASON,
             "posix_only_tests": POSIX_ONLY_TESTS,

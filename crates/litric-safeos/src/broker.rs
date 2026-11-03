@@ -5,7 +5,7 @@
 //! caller-supplied scan gate, and only then commits. The source is never modified,
 //! and an existing destination is never replaced without explicit approval.
 
-use std::fs::{self, File};
+use std::fs;
 use std::io;
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -221,8 +221,17 @@ impl Broker {
 
         let temp = parent.join(format!(".litric-{}-{}", unique(), name));
         let result = (|| -> Result<Exported, BrokerError> {
-            fs::copy(&canonical, &temp)?;
-            File::open(&temp)?.sync_all()?;
+            fs::copy(&canonical, &temp).map_err(|e| {
+                BrokerError::Io(format!("copy to temporary file {}: {e}", temp.display()))
+            })?;
+            // Windows FlushFileBuffers requires a writable handle; opening the
+            // verified temp file read-only makes sync_all fail with access denied.
+            fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(&temp)
+                .and_then(|f| f.sync_all())
+                .map_err(|e| BrokerError::Io(format!("sync temporary file {}: {e}", temp.display())))?;
 
             let expected = hash_file(&canonical, self.max_bytes)?;
             let actual = hash_file(&temp, self.max_bytes)?;
@@ -237,10 +246,19 @@ impl Broker {
                 Err(_) if exists => {
                     // Windows rename cannot replace; the verified temp is kept
                     // until the old file is removed, so a crash leaves both.
-                    fs::remove_file(dest)?;
-                    fs::rename(&temp, dest)?;
+                    fs::remove_file(dest).map_err(|e| {
+                        BrokerError::Io(format!("remove existing destination {}: {e}", dest.display()))
+                    })?;
+                    fs::rename(&temp, dest).map_err(|e| {
+                        BrokerError::Io(format!("publish temporary file to {}: {e}", dest.display()))
+                    })?;
                 }
-                Err(e) => return Err(BrokerError::Io(e.to_string())),
+                Err(e) => {
+                    return Err(BrokerError::Io(format!(
+                        "publish temporary file to {}: {e}",
+                        dest.display()
+                    )));
+                }
             }
 
             Ok(Exported {
@@ -314,13 +332,25 @@ mod tests {
 
     struct TempTree(PathBuf);
 
+    fn test_dir(tag: &str) -> PathBuf {
+        let name = format!("litric-broker-{tag}-{}-{}", std::process::id(), unique());
+        #[cfg(windows)]
+        {
+            std::env::var_os("SystemRoot")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from(r"C:\Windows"))
+                .join("Temp")
+                .join(name)
+        }
+        #[cfg(not(windows))]
+        {
+            std::env::temp_dir().join(name)
+        }
+    }
+
     impl TempTree {
         fn new(tag: &str) -> Self {
-            let p = std::env::temp_dir().join(format!(
-                "litric-broker-{tag}-{}-{}",
-                std::process::id(),
-                unique()
-            ));
+            let p = test_dir(tag);
             fs::create_dir_all(&p).unwrap();
             TempTree(p)
         }

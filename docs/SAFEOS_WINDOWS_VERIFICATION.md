@@ -203,9 +203,12 @@ Then update `LAUNCH_VERIFIED_ON_WINDOWS` to `true` in
 - Windows Sandbox is Microsoft's boundary; a hypervisor escape is out of scope.
 - The launcher does not broker files into the guest beyond a read-only mapping,
   and does not export anything back automatically.
-- The test suite has never run on Windows. NTFS no-clobber restore behavior and
-  every POSIX-only test's Windows counterpart remain UNPROVEN; the gate's
-  `test_evidence` records this rather than inferring it from a cross-compile.
+- The native Windows test suite has never run on Windows. The Windows-target
+  suite passed 195/195 under Wine 11.21, with 8 POSIX-only tests excluded, but
+  that is a Windows-ABI run, not native Windows. NTFS no-clobber restore behavior
+  and every POSIX-only test's Windows counterpart remain UNPROVEN; the gate's
+  `test_evidence` records both runs separately rather than promoting Wine to
+  native evidence.
 - No WFP gateway or Hyper-V backend exists; sandbox networking is always disabled.
 - Waiting (`--wait`) may return when the sandbox client exits, not when the guest
   is fully torn down; verify with Task Manager.

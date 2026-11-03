@@ -28,7 +28,9 @@ project is early, and the status file lists what is *not* built.
 
 ```bash
 cargo build --release
-cargo test                      # 203 tests (Linux x86_64; Windows test execution UNPROVEN)
+cargo test                      # 203 tests on Linux x86_64
+cargo test --workspace --all-targets --target x86_64-pc-windows-gnu
+                                # 195 tests under Wine 11.21; 8 POSIX-only excluded
 ./target/release/litric rules lint rules
 ./target/release/litric scan /path/to/scan
 ./target/release/litric analyze suspicious.exe
@@ -85,8 +87,10 @@ cargo check --target x86_64-pc-windows-gnu -p litric-core
 ```
 
 `cargo check` only compiles the Windows target; it does not run tests. The
-readiness doc records that the passing suite was executed on Linux and lists the
-POSIX-only tests whose Windows counterparts are still UNPROVEN.
+readiness doc records that the native suite was executed on Linux and the
+Windows-target suite under Wine 11.21 (195/195; 8 POSIX-only tests excluded).
+Wine is not native Windows: NTFS, native Windows 11, and Windows Sandbox guest
+behavior remain UNPROVEN.
 
 ## Measured baseline
 

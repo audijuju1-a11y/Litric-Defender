@@ -261,6 +261,13 @@ pub fn prepare(
         return Err(LaunchError::Invalid(reason.into()));
     }
 
+    // Reject reserved device names and path separators before canonicalizing or
+    // touching the filesystem. Windows may otherwise interpret `CON`, `NUL` or
+    // a trailing-dot name as a device or a different path.
+    if let Some(name) = app.file_name().and_then(|n| n.to_str()) {
+        validate_guest_name(name).map_err(LaunchError::Invalid)?;
+    }
+
     let readiness = Readiness::evaluate(facts);
     if !readiness.sandbox_usable {
         let reasons = readiness
@@ -436,12 +443,26 @@ mod tests {
         }
     }
 
+    fn test_dir(tag: &str) -> PathBuf {
+        let name = format!("litric-sbx-{tag}-{}-{}", std::process::id(), nanos());
+        #[cfg(windows)]
+        {
+            // A user-profile temp path is intentionally refused by `prepare`.
+            // System temp gives these fixtures a legitimate non-profile path.
+            std::env::var_os("SystemRoot")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from(r"C:\Windows"))
+                .join("Temp")
+                .join(name)
+        }
+        #[cfg(not(windows))]
+        {
+            std::env::temp_dir().join(name)
+        }
+    }
+
     fn fixture(tag: &str) -> (PathBuf, PathBuf) {
-        let dir = std::env::temp_dir().join(format!(
-            "litric-sbx-{tag}-{}-{}",
-            std::process::id(),
-            nanos()
-        ));
+        let dir = test_dir(tag);
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let app = dir.join("sample.exe");
@@ -558,6 +579,9 @@ mod tests {
         for name in ["CON", "con.txt", "NUL.exe", "COM1.bin", "LPT9.dll"] {
             let (dir, _) = fixture("reserved");
             let app = dir.join(name);
+            // Windows interprets these as devices; do not open them merely to
+            // build the test fixture. The name check must refuse them first.
+            #[cfg(not(windows))]
             std::fs::write(&app, b"MZ").unwrap();
             assert!(
                 matches!(

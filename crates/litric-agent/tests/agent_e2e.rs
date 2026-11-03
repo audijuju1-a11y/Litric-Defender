@@ -23,12 +23,27 @@ fn nanos() -> u128 {
         .unwrap_or(0)
 }
 
+fn test_base(tag: &str) -> std::path::PathBuf {
+    let name = format!("litric-agent-{tag}-{}-{}", std::process::id(), nanos());
+    #[cfg(windows)]
+    {
+        // Wine and Windows put `temp_dir()` under the user profile, which the
+        // sandbox deliberately refuses to map. Use the system temp directory
+        // for fixtures that must look like a non-profile application path.
+        std::env::var_os("SystemRoot")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::path::PathBuf::from(r"C:\Windows"))
+            .join("Temp")
+            .join(name)
+    }
+    #[cfg(not(windows))]
+    {
+        std::env::temp_dir().join(name)
+    }
+}
+
 fn start(tag: &str) -> (server::ServerHandle, std::path::PathBuf) {
-    let base = std::env::temp_dir().join(format!(
-        "litric-agent-{tag}-{}-{}",
-        std::process::id(),
-        nanos()
-    ));
+    let base = test_base(tag);
     let _ = fs::remove_dir_all(&base);
     fs::create_dir_all(&base).unwrap();
     let rules = "rule Eicar.Test {\n meta:\n  description = \"EICAR\"\n  severity = \"critical\"\n strings:\n  $s = \"EICAR-STANDARD-ANTIVIRUS-TEST-FILE\"\n condition:\n  $s\n}\n";
@@ -129,12 +144,22 @@ fn agent_report_updates_status_but_never_claims_a_launcher() {
         .find(|b| b["kind"] == "windows_sandbox")
         .unwrap();
     assert_eq!(sandbox["host_supported"], true, "status: {status}");
-    assert_eq!(sandbox["available"], false, "status: {status}");
-    assert!(
-        sandbox["reason"].as_str().unwrap().contains("launcher is not implemented"),
-        "status: {status}"
-    );
-    assert_eq!(status["windows_sandbox_launch_implemented"], false);
+    assert_eq!(status["windows_sandbox_launch_verified"], false);
+    #[cfg(not(windows))]
+    {
+        assert_eq!(sandbox["available"], false, "status: {status}");
+        assert!(
+            sandbox["reason"].as_str().unwrap().contains("launcher is not implemented"),
+            "status: {status}"
+        );
+        assert_eq!(status["windows_sandbox_launch_implemented"], false);
+    }
+    #[cfg(windows)]
+    {
+        // This build contains the launcher, but it has not been verified on
+        // hardware; reporting "implemented" must not become "verified".
+        assert_eq!(status["windows_sandbox_launch_implemented"], true);
+    }
 }
 
 #[test]

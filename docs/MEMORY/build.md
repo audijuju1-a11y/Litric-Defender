@@ -6,7 +6,8 @@
   `export PATH="$HOME/.cargo/bin:$PATH"`.
 * Workspace members: `litric-core`, `litric-service`, `litric-cli`,
   `litric-safeos`.
-* Windows cross-target installed: `x86_64-pc-windows-gnu` (compile check only).
+* Windows cross-target installed: `x86_64-pc-windows-gnu`. It has been run under
+  Wine 11.21; native Windows has not been available.
 
 ## Commands
 
@@ -16,6 +17,7 @@ cargo test -p litric-safeos                  # one crate
 cargo build --release                        # must have zero warnings
 cargo check --workspace --all-targets --target x86_64-pc-windows-gnu
 cargo clippy --workspace --all-targets --target x86_64-pc-windows-gnu -- -D warnings
+cargo test --workspace --all-targets --target x86_64-pc-windows-gnu
 ```
 
 Run the daemon:
@@ -31,10 +33,12 @@ Run the daemon:
 90 core + 21 service + 8 client + 21 cli integration + 51 safeos + 7 agent +
 5 agent end-to-end = 203. Re-run and update this line; do not assume.
 
-That count was produced on Linux x86_64 (POSIX host). Windows execution of the
-suite is UNPROVEN: the Windows target is cross-compiled and clippy-checked only.
-`tests/platform_evidence.rs` enforces the POSIX-only markers and the gate/doc
-`test_evidence` block.
+That count was produced on Linux x86_64 (POSIX host). The Windows-target suite
+was also executed under Wine 11.21: 195 passed, 0 failed, with the 8 documented
+POSIX-only tests excluded. Wine is not native Windows; NTFS, native Windows 11
+and Windows Sandbox guest behavior remain UNPROVEN. The local test command needs
+a MinGW cross-linker and a Wine runner; `tests/platform_evidence.rs` enforces the
+POSIX-only markers and the gate/doc `test_evidence` block.
 
 Quarantine lifecycle and recovery tests live in `litric-core` (`quarantine::tests::
 recovery_*`, `double_restore_*`, `corrupted_entry_*`) and in the CLI end-to-end

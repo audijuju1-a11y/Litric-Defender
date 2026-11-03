@@ -59,7 +59,7 @@ Nothing in this file may be upgraded without the corresponding code and test.
 | Quarantine lifecycle: encrypt → verify → index → remove original | TESTED | temp decrypt/hash before touching source; conservative index row if interrupted |
 | List / inspect / integrity audit (`verify_all`) | TESTED | every entry decrypted and re-hashed; failures reported, not hidden |
 | Restore: refuse overwrite, temp → close → atomic publish → re-read | TESTED | existing bytes unchanged; double restore and restore-after-purge return `NotFound` |
-| Windows/NTFS no-clobber and occupied-destination semantics | UNPROVEN | portable `hard_link`/`create_new` code is cross-compiled but the suite has not run on Windows |
+| Windows/NTFS no-clobber and occupied-destination semantics | UNPROVEN | portable `hard_link`/`create_new` tests pass under Wine's Windows ABI; NTFS and native Windows behavior remain unproven |
 | Purge with explicit confirmation and journal | TESTED | 404 for unknown/already-purged; never a silent success |
 | Crash recovery from `ops.jsonl` (`intent`/`done`, reconcile on open) | TESTED | interrupted quarantine/restore/purge tests; conflicting target preserved; orphan entry re-indexed; idempotent |
 | Native path/ADS/metadata preservation | PARTIALLY IMPLEMENTED | POSIX mode/mtime and NTFS ADS not yet preserved |
@@ -123,13 +123,14 @@ Nothing in this file may be upgraded without the corresponding code and test.
 | Area | State |
 |---|---|
 | Unit tests across engine, rules, PE, vault, DB, scan, RansomShield | TESTED — 90 core tests; full suite 203 tests on Linux x86_64 |
+| Windows-target test suite | TESTED under Wine 11.21 — 195 passed, 0 failed; 8 POSIX-only tests excluded; not native Windows |
 | Fuzz/adversarial input handling | PARTIALLY IMPLEMENTED — random/truncated buffers, malformed PE, garbage DER, archive-free |
 | Continuous fuzzing (cargo-fuzz, AFL) | PLANNED |
 | Malware corpus evaluation, FP/FN measurement | PLANNED — no labelled corpus with a usable licence |
 | Windows VM test matrix, driver tests, E2E | BLOCKED by environment |
 | Performance benchmarks | PARTIALLY IMPLEMENTED — CLI `bench` on Linux VM only |
 | Crash/recovery and event-loss tests | PARTIALLY IMPLEMENTED — quarantine journal/recovery is tested; VM/VHDX recovery is not written |
-| Platform labelling and readiness evidence sync | TESTED — POSIX-only source markers, gate `test_evidence`, and `docs/SAFEOS_READINESS.md` are checked against each other; Windows execution of the suite is UNPROVEN |
+| Platform labelling and readiness evidence sync | TESTED — POSIX-only source markers, gate `test_evidence`, and `docs/SAFEOS_READINESS.md` are checked against each other; the Wine ABI run is recorded separately and native Windows execution remains UNPROVEN |
 
 ## 10. SafeOS (application isolation)
 

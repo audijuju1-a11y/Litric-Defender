@@ -309,3 +309,190 @@ fn analyze_reports_detection_through_daemon() {
     assert!(text.contains("Eicar.Test"), "output: {text}");
     assert!(text.contains("sha256"), "output: {text}");
 }
+
+#[test]
+fn quarantine_lifecycle_restore_purge_and_terminal_errors() {
+    let d = start("qlife");
+    let dir = d.workdir("files");
+    let sample = dir.join("life.bin");
+    let content = b"lifecycle sample";
+    fs::write(&sample, content).unwrap();
+
+    let add = d.run(&[
+        "quarantine",
+        "add",
+        sample.to_str().unwrap(),
+        "--threat",
+        "Test.Life",
+    ]);
+    assert!(add.status.success(), "stderr: {}", stderr(&add));
+    let add_text = stdout(&add);
+    let id = add_text
+        .split(" as ")
+        .nth(1)
+        .unwrap()
+        .lines()
+        .next()
+        .unwrap()
+        .trim()
+        .to_string();
+    assert!(!sample.exists());
+
+    let verify = d.run(&["quarantine", "verify"]);
+    assert!(verify.status.success(), "stderr: {}", stderr(&verify));
+    assert!(stdout(&verify).contains("ok"), "output: {}", stdout(&verify));
+
+    let restore = d.run(&["quarantine", "restore", &id]);
+    assert!(restore.status.success(), "stderr: {}", stderr(&restore));
+    assert_eq!(fs::read(&sample).unwrap(), content);
+    assert!(stdout(&d.run(&["quarantine", "list"])).contains("quarantine is empty"));
+
+    let again = d.run(&["quarantine", "restore", &id]);
+    assert_eq!(again.status.code(), Some(2));
+    assert!(
+        stderr(&again).contains("no quarantine entry"),
+        "stderr: {}",
+        stderr(&again)
+    );
+
+    let sample2 = dir.join("purge.bin");
+    fs::write(&sample2, b"purge me").unwrap();
+    let add2 = d.run(&[
+        "quarantine",
+        "add",
+        sample2.to_str().unwrap(),
+        "--threat",
+        "Test.Purge",
+    ]);
+    let id2 = stdout(&add2)
+        .split(" as ")
+        .nth(1)
+        .unwrap()
+        .lines()
+        .next()
+        .unwrap()
+        .trim()
+        .to_string();
+    let purge = d.run(&["quarantine", "purge", &id2, "--confirm"]);
+    assert!(purge.status.success(), "stderr: {}", stderr(&purge));
+    let after = d.run(&["quarantine", "restore", &id2]);
+    assert_eq!(after.status.code(), Some(2));
+    assert!(stderr(&after).contains("no quarantine entry"));
+}
+
+#[test]
+fn quarantine_refuses_overwrite_and_corrupt_entries() {
+    let d = start("qhostile");
+    let dir = d.workdir("files");
+    let missing = d.run(&[
+        "quarantine",
+        "add",
+        dir.join("does-not-exist.bin").to_str().unwrap(),
+    ]);
+    assert_eq!(missing.status.code(), Some(2));
+    assert!(
+        stderr(&missing).contains("cannot access"),
+        "stderr: {}",
+        stderr(&missing)
+    );
+    let sample = dir.join("hostile.bin");
+    fs::write(&sample, b"sensitive").unwrap();
+    let add = d.run(&[
+        "quarantine",
+        "add",
+        sample.to_str().unwrap(),
+        "--threat",
+        "Test.Hostile",
+    ]);
+    assert!(add.status.success(), "stderr: {}", stderr(&add));
+    let id = stdout(&add)
+        .split(" as ")
+        .nth(1)
+        .unwrap()
+        .lines()
+        .next()
+        .unwrap()
+        .trim()
+        .to_string();
+
+    let occupied = dir.join("keep.bin");
+    fs::write(&occupied, b"keep me").unwrap();
+    let restore = d.run(&[
+        "quarantine",
+        "restore",
+        &id,
+        "--dest",
+        occupied.to_str().unwrap(),
+    ]);
+    assert_eq!(restore.status.code(), Some(2));
+    assert!(
+        stderr(&restore).contains("refusing to overwrite"),
+        "stderr: {}",
+        stderr(&restore)
+    );
+    assert_eq!(fs::read(&occupied).unwrap(), b"keep me");
+    assert!(stdout(&d.run(&["quarantine", "list"])).contains("Test.Hostile"));
+
+    let entry = d.base.join("q").join(format!("{id}.lq"));
+    let mut raw = fs::read(&entry).expect("vault entry");
+    let last = raw.len() - 1;
+    raw[last] ^= 0xff;
+    fs::write(&entry, raw).unwrap();
+
+    let verify = d.run(&["quarantine", "verify"]);
+    assert_eq!(verify.status.code(), Some(1));
+    assert!(stdout(&verify).contains("FAIL"), "output: {}", stdout(&verify));
+
+    let never = dir.join("never.bin");
+    let restore = d.run(&[
+        "quarantine",
+        "restore",
+        &id,
+        "--dest",
+        never.to_str().unwrap(),
+    ]);
+    assert_eq!(restore.status.code(), Some(2));
+    let err = stderr(&restore);
+    assert!(
+        err.contains("integrity") || err.contains("authentication"),
+        "stderr: {err}"
+    );
+    assert!(!never.exists(), "corrupt entry must not restore data");
+
+    let purge = d.run(&["quarantine", "purge", &id, "--confirm"]);
+    assert!(purge.status.success(), "stderr: {}", stderr(&purge));
+    let after = d.run(&["quarantine", "restore", &id]);
+    assert_eq!(after.status.code(), Some(2));
+    assert!(stderr(&after).contains("no quarantine entry"));
+}
+
+#[test]
+fn cancel_reports_unknown_and_finished_jobs() {
+    let d = start("cancel");
+    let unknown = d.run(&["cancel", "scan-999999"]);
+    assert_eq!(unknown.status.code(), Some(2));
+    assert!(
+        stderr(&unknown).contains("no scan job"),
+        "stderr: {}",
+        stderr(&unknown)
+    );
+
+    let dir = d.workdir("scan");
+    fs::write(dir.join("a.txt"), b"hello").unwrap();
+    let scan = d.run(&["scan", dir.to_str().unwrap()]);
+    assert!(scan.status.success(), "stderr: {}", stderr(&scan));
+    let text = stdout(&scan);
+    let id = text
+        .lines()
+        .find(|l| l.contains("scan queued"))
+        .and_then(|l| l.split_whitespace().nth(3))
+        .expect("scan id")
+        .to_string();
+    let finished = d.run(&["cancel", &id]);
+    assert_eq!(finished.status.code(), Some(2));
+    assert!(
+        stderr(&finished).contains("already finished"),
+        "stderr: {}",
+        stderr(&finished)
+    );
+}

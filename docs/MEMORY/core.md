@@ -1,6 +1,6 @@
 # Core engine area memory
 
-Crate: `crates/litric-core` (83 tests). Zero `unsafe`.
+Crate: `crates/litric-core` (90 tests). Zero `unsafe`.
 
 | Module | Responsibility |
 |---|---|
@@ -15,11 +15,12 @@ Crate: `crates/litric-core` (83 tests). Zero `unsafe`.
 | `engine.rs` | verdict aggregation; `Clean` only via trusted hash |
 | `threatdb.rs` | Ed25519-signed DB, anti-rollback, atomic install |
 | `scan.rs` | walker, budgets, cache, progress/cancel hooks |
-| `quarantine.rs` | XChaCha20-Poly1305 vault, verify-before-delete |
+| `quarantine.rs` | XChaCha20-Poly1305 vault, verify-before-delete, journaled restore/purge/recovery |
 | `ranshield.rs` | behavioural scoring, honey vault, response policy |
 
 Invariants: `Unknown` is never counted as clean; `Suspicious`/`Malicious` require
 evidence; scan budgets are hard; cancellation is cooperative via `AtomicBool`.
 
 Known gaps: archive recursion, macro extraction, fuzzy hashing, parallel scan,
-Windows file-id dedupe, WinVerifyTrust chain validation.
+Windows file-id dedupe, WinVerifyTrust chain validation. Quarantine recovery is
+proven by simulated journal states, not a real power-loss test.

@@ -2,12 +2,14 @@
 
 Binary: `litric` (`crates/litric-cli`). Library: `litric_cli::client`
 (HTTP transport + rendering, 8 unit tests). End-to-end: `tests/daemon_e2e.rs`
-(12 tests, real binary against a real daemon).
+(15 tests, real binary against a real daemon) plus `tests/safeos_launch_verify.rs`
+(4 tests).
 
 ## Behaviour
 
-* Operational commands go through `litricd`: `status`, `scan`, `analyze`,
-  `quarantine {list,add,restore,verify,purge}`, `safeos {status,assess}`.
+* Operational commands go through `litricd`: `status`, `scan`, `cancel <job-id>`,
+  `analyze`, `quarantine {list,add,restore,verify,purge}`,
+  `safeos {status,launch,assess}`.
 * Token discovery: `--token-file`, `LITRIC_TOKEN_FILE`, else
   `./litric-data/api.token`.
 * Address: `--addr` / `LITRIC_ADDR` / `127.0.0.1:8787`.
@@ -31,6 +33,10 @@ Tests assert these strings; change them only with the tests.
 * `Client::discover` fails before any network I/O if the token file is missing.
 * `quarantine purge` requires `--confirm` client-side; the daemon also requires
   `?confirm=true`.
+* `cancel` reports an unknown job as "no scan job" and a terminal job as "already
+  finished", both exit 2.
+* `quarantine restore` refuses an occupied destination; the daemon returns 409 and
+  the CLI exits 2 without replacing the existing file.
 * `safeos assess` exits 1 for `deny` and `block_and_quarantine`, because both mean
   "do not launch".
 * Don't add a silent fallback to the engine; the whole point of the client is that

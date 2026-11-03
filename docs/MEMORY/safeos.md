@@ -45,6 +45,16 @@ Crate: `crates/litric-safeos` (51 tests). Integrated into the daemon at
 * `nat_query_ok=false` blocks the gateway; do not treat an unreadable NAT state
   as zero.
 
+## Readiness gate (service side)
+
+* `/api/v1/readiness` always returns 503 with `production_ready:false`; `status`
+  embeds it, `health` sets `protection_ready:false`, and `assess` embeds
+  `system_readiness`.
+* States are `READY` only for tested capabilities, `UNPROVEN` for launch on
+  Windows and the guest runtime, `BLOCKED` for launch on non-Windows, and
+  `NOT_IMPLEMENTED` for absent backends. The refusal test is
+  `readiness_gate_refuses_to_claim_ready`.
+
 ## Where to change what
 
 * New backend? Add to `BackendKind`/`backend_status`, extend `BackendSet`, add a

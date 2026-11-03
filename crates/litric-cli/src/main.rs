@@ -88,6 +88,10 @@ enum Command {
         #[arg(long)]
         db: Option<PathBuf>,
     },
+    /// Cancel a running scan by job id.
+    Cancel {
+        id: String,
+    },
     /// Analyse one file and show the evidence behind the verdict.
     Analyze {
         file: PathBuf,
@@ -318,6 +322,16 @@ fn run(cli: Cli) -> Result<ExitCode, Box<dyn std::error::Error>> {
                 }
                 std::thread::sleep(Duration::from_millis(150));
             }
+        }
+
+        Command::Cancel { id } => {
+            let c = Client::discover(addr.as_deref(), token_file.as_deref())?;
+            let v = c.cancel_scan(&id)?;
+            println!(
+                "cancellation requested: {id} ({})",
+                v["state"].as_str().unwrap_or("cancelling")
+            );
+            Ok(ExitCode::SUCCESS)
         }
 
         Command::Analyze {

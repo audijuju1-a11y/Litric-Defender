@@ -56,9 +56,11 @@ Nothing in this file may be upgraded without the corresponding code and test.
 |---|---|---|
 | Encrypted vault (XChaCha20-Poly1305, Argon2id, per-entry nonce) | TESTED | plaintext-absence asserted in test |
 | Header authenticated as AAD (tamper detection) | TESTED | header-bit-flip test |
-| Verify-before-delete of original | TESTED | reads back temp entry, hash-compares |
-| Restore without overwriting existing files, hash re-verified | TESTED | |
-| Vault integrity audit (`verify_all`), purge | TESTED | |
+| Quarantine lifecycle: encrypt → verify → index → remove original | TESTED | temp decrypt/hash before touching source; conservative index row if interrupted |
+| List / inspect / integrity audit (`verify_all`) | TESTED | every entry decrypted and re-hashed; failures reported, not hidden |
+| Restore: refuse overwrite, temp → hash → rename → re-read | TESTED | existing bytes unchanged; double restore and restore-after-purge return `NotFound` |
+| Purge with explicit confirmation and journal | TESTED | 404 for unknown/already-purged; never a silent success |
+| Crash recovery from `ops.jsonl` (`intent`/`done`, reconcile on open) | TESTED | interrupted quarantine/restore/purge tests; conflicting target preserved; orphan entry re-indexed; idempotent |
 | Native path/ADS/metadata preservation | PARTIALLY IMPLEMENTED | POSIX mode/mtime and NTFS ADS not yet preserved |
 | DPAPI wrapping of the vault key | PLANNED | Windows service responsibility |
 
@@ -90,9 +92,9 @@ Nothing in this file may be upgraded without the corresponding code and test.
 
 | Feature | State |
 |---|---|
-| CLI client (`litric`): status / scan with live progress / analyze / quarantine-list over the daemon API, with `--local` standalone escape hatch | TESTED — 8 end-to-end tests invoke the real binary against a real daemon |
+| CLI client (`litric`): status / scan with progress / cancel / analyze / quarantine lifecycle (add, list, verify, restore, purge) over the daemon API, with `--local` standalone escape hatch | TESTED — 19 end-to-end tests (15 daemon + 4 SafeOS launch) invoke the real binary against a real daemon |
 | Rule lint, DB build/verify, bench (in-process engine tooling) | TESTED |
-| Local API backend (`litricd`): loopback HTTP/JSON, bearer auth, scan jobs with live progress + cancellation, analyze, quarantine control, settings/history persistence, RansomShield event ingestion | TESTED — 14 service tests incl. socket-level auth |
+| Local API backend (`litricd`): loopback HTTP/JSON, bearer auth, scan jobs with progress + cancellation, analyze, quarantine control (404/409 mapping), readiness gate, settings/history persistence, RansomShield event ingestion | TESTED — 21 service tests incl. socket-level auth, readiness refusal and quarantine error mapping |
 | Native Windows GUI (WinUI 3 / WPF) with all 22 sections | PLANNED — no Windows host to build or test it |
 | Tray icon, notifications, threat explanations UI | PLANNED |
 | Installer / uninstaller | PLANNED |
@@ -119,13 +121,13 @@ Nothing in this file may be upgraded without the corresponding code and test.
 
 | Area | State |
 |---|---|
-| Unit tests across engine, rules, PE, vault, DB, scan, RansomShield | TESTED — 81 tests |
+| Unit tests across engine, rules, PE, vault, DB, scan, RansomShield | TESTED — 90 core tests; full suite 201 tests |
 | Fuzz/adversarial input handling | PARTIALLY IMPLEMENTED — random/truncated buffers, malformed PE, garbage DER, archive-free |
 | Continuous fuzzing (cargo-fuzz, AFL) | PLANNED |
 | Malware corpus evaluation, FP/FN measurement | PLANNED — no labelled corpus with a usable licence |
 | Windows VM test matrix, driver tests, E2E | BLOCKED by environment |
 | Performance benchmarks | PARTIALLY IMPLEMENTED — CLI `bench` on Linux VM only |
-| Crash/recovery and event-loss tests | PLANNED |
+| Crash/recovery and event-loss tests | PARTIALLY IMPLEMENTED — quarantine journal/recovery is tested; VM/VHDX recovery is not written |
 
 ## 10. SafeOS (application isolation)
 
@@ -147,12 +149,15 @@ NOT READY** — see `docs/SAFEOS_READINESS.md` for the criterion-by-criterion ve
 | Local network gateway, WFP, WinNAT integration | BLOCKED | requires Windows + admin; not written |
 | Guest behaviour monitoring / ETW correlation | BLOCKED | requires a running guest |
 | SafeLaunch UI, Explorer integration, installer | PLANNED | no Windows UI in this repository |
-| API integration (`/api/v1/safeos/status`, `/assess`) and CLI (`litric safeos`) | TESTED | through the real daemon in end-to-end tests |
+| API integration (`/api/v1/safeos/status`, `/assess`, `/readiness`) and CLI (`litric safeos`) | TESTED | through the real daemon in end-to-end tests |
+| Fail-closed readiness gate (503, `production_ready:false`, guest runtime `UNPROVEN`) | TESTED | `/api/v1/readiness`, `/status`, `/health`, `/assess`, `safeos status`; refusal test rejects any `READY` outside the tested allowlist |
 
 ## 11. Summary
 
-Working and tested: the detection engine, rules, verdicts, quarantine, signed
-database, scan accounting, RansomShield decisions, CLI.
+Working and tested: the detection engine, rules, verdicts, the full journaled
+quarantine lifecycle (quarantine, inspect, verify, restore, purge, recovery),
+signed database, scan accounting and cancellation, RansomShield decisions, CLI,
+and the fail-closed readiness gate.
 
 Not working: any form of OS-level enforcement, the Windows UI, the installer, and
 all kernel components. A user cannot yet *install* Litric Defender, and it does

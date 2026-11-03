@@ -28,8 +28,13 @@ Run the daemon:
 
 ## Test counts at last verification
 
-83 core + 19 service + 8 client + 16 cli end-to-end + 51 safeos + 7 agent +
-5 agent end-to-end = 189. Re-run and update this line; do not assume.
+90 core + 21 service + 8 client + 19 cli end-to-end + 51 safeos + 7 agent +
+5 agent end-to-end = 201. Re-run and update this line; do not assume.
+
+Quarantine lifecycle and recovery tests live in `litric-core` (`quarantine::tests::
+recovery_*`, `double_restore_*`, `corrupted_entry_*`) and in the CLI end-to-end
+suite (`quarantine_lifecycle_*`, `quarantine_refuses_*`). The readiness refusal is
+`litric-service`'s `readiness_gate_refuses_to_claim_ready`.
 
 ## Environment constraints
 

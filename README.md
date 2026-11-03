@@ -17,7 +17,7 @@ project is early, and the status file lists what is *not* built.
 | Litric Rule Syntax engine (own grammar, own Aho–Corasick matcher) | IMPLEMENTED, TESTED |
 | Heuristic engine (30+ weighted, explainable signals with ATT&CK mapping) | IMPLEMENTED, TESTED |
 | Verdict aggregation with trust dampening and explicit `Unknown` | IMPLEMENTED, TESTED |
-| Encrypted quarantine vault (XChaCha20-Poly1305, Argon2id, tamper-evident) | IMPLEMENTED, TESTED |
+| Encrypted quarantine vault with a journaled lifecycle (add, inspect, verify, restore, purge, crash recovery) | IMPLEMENTED, TESTED |
 | Signed threat database (Ed25519, anti-rollback, revocation, atomic install) | IMPLEMENTED, TESTED |
 | RansomShield behavioural engine + HoneyVault decoys | IMPLEMENTED, TESTED (simulator-driven) |
 | Scan orchestration with budgets, cache, honest accounting | IMPLEMENTED, TESTED |
@@ -28,7 +28,7 @@ project is early, and the status file lists what is *not* built.
 
 ```bash
 cargo build --release
-cargo test                      # 81 tests
+cargo test                      # 201 tests
 ./target/release/litric rules lint rules
 ./target/release/litric scan /path/to/scan
 ./target/release/litric analyze suspicious.exe
@@ -47,12 +47,15 @@ curl -H "Authorization: Bearer $(cat ./litric-data/api.token)" \
      http://127.0.0.1:8787/api/v1/status
 ```
 
-Endpoints: `/api/v1/health` (unauthenticated readiness), `/status`, `/scan`,
-`/scans/{id}` (+ `/cancel`), `/analyze`, `/quarantine` (add / list / restore /
-verify / purge-with-confirmation), `/settings`, `/history`, `/ranshield/events`.
+Endpoints: `/api/v1/health` (unauthenticated liveness), `/readiness` (always 503
+while evidence is missing), `/status`, `/scan`, `/scans/{id}` (+ `/cancel`),
+`/analyze`, `/quarantine` (add / list / verify / restore / purge-with-confirmation),
+`/settings`, `/history`, `/ranshield/events`.
 
 `/status` reports `state: "limited"` and `real_time_protection: false` on a host
 without the kernel sensor — it will not display a green shield it has not earned.
+`/readiness` and `/status.readiness` report `production_ready: false`, with the
+Windows Sandbox guest runtime explicitly `UNPROVEN` until a real guest run exists.
 
 The CLI is a client of that daemon; it does not scan in-process unless you ask:
 
@@ -61,6 +64,10 @@ litric status                       # honest protection state, from the daemon
 litric scan C:\\Users            # queues a job, prints live progress, then the result
 litric analyze suspicious.exe       # evidence behind the verdict
 litric quarantine list             # what the service is holding
+litric quarantine verify           # decrypt and re-hash every entry
+litric quarantine restore <id>     # refuses to overwrite an existing file
+litric quarantine purge <id> --confirm
+litric cancel <job-id>             # refuse if the job is unknown or finished
 ```
 
 Every command takes `--addr` and `--token-file` (or `LITRIC_ADDR` /

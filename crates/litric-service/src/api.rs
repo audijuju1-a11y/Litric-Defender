@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 
 use litric_core::ranshield::{Assessment, FsEvent, Level, ProcessContext};
+use litric_core::error::VaultError;
 use litric_core::threatdb::EntryKind;
 use litric_safeos::model::{backend_status, HostFacts, Readiness};
 use litric_safeos::policy::{decide, BackendSet};
@@ -63,6 +64,10 @@ pub fn dispatch(state: &AppState, method: &str, url: &str, body: &[u8]) -> ApiRe
 
     match (method, segs.as_slice()) {
         ("GET", ["api", "v1", "health"]) => ok(health_json(state)),
+        ("GET", ["api", "v1", "readiness"]) => ApiResponse {
+            status: 503,
+            body: readiness_json(),
+        },
         ("GET", ["api", "v1", "status"]) => ok(status_json(state)),
         ("GET", ["api", "v1", "capabilities"]) => ok(json!({ "capabilities": capabilities() })),
         ("POST", ["api", "v1", "scan"]) => start_scan(state, body),
@@ -147,10 +152,50 @@ pub fn capabilities() -> Value {
     })
 }
 
+/// Fail-closed capability report. Anything without real evidence is UNPROVEN,
+/// BLOCKED or NOT_IMPLEMENTED; nothing may be READY just because it compiles.
+pub fn readiness_json() -> Value {
+    let launch = if litric_safeos::sandbox::LAUNCH_IMPLEMENTED {
+        "UNPROVEN"
+    } else {
+        "BLOCKED"
+    };
+    json!({
+        "production_ready": false,
+        "verdict": "NOT PRODUCTION READY",
+        "capabilities": {
+            "on_demand_scan": { "state": "READY", "evidence": "automated tests" },
+            "quarantine": { "state": "READY", "evidence": "lifecycle and recovery tests" },
+            "safeos_risk_assessment": { "state": "READY", "evidence": "automated tests" },
+            "safeos_fail_closed_policy": { "state": "READY", "evidence": "automated tests" },
+            "safeos_sandbox_config": { "state": "READY", "evidence": "automated .wsb tests" },
+            "safeos_sandbox_launch": {
+                "state": launch,
+                "reason": if litric_safeos::sandbox::LAUNCH_IMPLEMENTED {
+                    "compiled for Windows but never run on a real Windows 11 host"
+                } else {
+                    "requires a Windows build"
+                }
+            },
+            "safeos_sandbox_guest_runtime": {
+                "state": "UNPROVEN",
+                "reason": "no guest run has observed networking, clipboard or read-only mapping"
+            },
+            "safeos_hyperv_backend": { "state": "NOT_IMPLEMENTED" },
+            "safeos_network_gateway": { "state": "NOT_IMPLEMENTED" },
+            "safeos_behavior_monitoring": { "state": "NOT_IMPLEMENTED" },
+            "safeos_ui": { "state": "NOT_IMPLEMENTED" },
+            "safeos_installer": { "state": "NOT_IMPLEMENTED" },
+            "safeos_vm_recovery": { "state": "UNPROVEN", "reason": "journal planner only; no VHDX recovery" }
+        }
+    })
+}
+
 fn health_json(state: &AppState) -> Value {
     let (jobs_known, jobs_running) = state.jobs.counts();
     json!({
         "status": "ok",
+        "protection_ready": false,
         "product": "Litric Defender",
         "engine_version": litric_core::ENGINE_VERSION,
         "uptime_seconds": state.started.elapsed().as_secs(),
@@ -183,6 +228,7 @@ fn status_json(state: &AppState) -> Value {
         "real_time_protection": realtime_active,
         "realtime_requested_by_user": state.realtime_requested,
         "capabilities": cap,
+        "readiness": readiness_json(),
         "rules_loaded": state.engine.rules().len(),
         "threat_database": threat_db_json(state),
         "quarantine_entries": quarantined,
@@ -416,6 +462,7 @@ fn safeos_status(state: &AppState) -> Value {
     let readiness = Readiness::evaluate(&facts);
     json!({
         "state": if facts.known { "facts_reported" } else { "unavailable" },
+        "readiness": readiness_json(),
         "host_facts_known": facts.known,
         "platform_agent": if facts.known {
             "host facts received"
@@ -566,6 +613,7 @@ fn safeos_assess(state: &AppState, body: &[u8]) -> ApiResponse {
         "reasons": decision.reasons,
         "remediation": decision.remediation,
         "isolation_available": false,
+        "system_readiness": { "production_ready": false, "sandbox_guest_runtime": "UNPROVEN" },
         "note": "no isolation backend is present in this build; the decision is fail-closed",
     }))
 }
@@ -672,7 +720,21 @@ fn quarantine_restore(state: &AppState, id: &str, body: &[u8]) -> ApiResponse {
     };
     match state.vault.restore(id, dest.as_deref()) {
         Ok(path) => ok(json!({ "restored_to": path.display().to_string() })),
-        Err(e) => err(500, format!("restore failed: {e}")),
+        Err(e) => vault_error(e),
+    }
+}
+
+/// Maps vault failures to stable HTTP statuses. Integrity/conflict are 409, not
+/// a generic 500, because they are actionable and must not look like a crash.
+fn vault_error(e: VaultError) -> ApiResponse {
+    match e {
+        VaultError::NotFound(m) => not_found(m),
+        VaultError::Conflict(m) => err(409, m),
+        VaultError::IntegrityMismatch { .. } | VaultError::Authentication => {
+            err(409, format!("vault integrity check failed: {e}"))
+        }
+        VaultError::Corrupt(m) => err(409, format!("vault entry corrupt: {m}")),
+        VaultError::Io(_) => err(500, format!("vault I/O failed: {e}")),
     }
 }
 
@@ -690,7 +752,7 @@ fn quarantine_purge(state: &AppState, id: &str, query: &str, body: &[u8]) -> Api
     }
     match state.vault.purge(id) {
         Ok(()) => ok(json!({ "purged": id })),
-        Err(e) => err(500, format!("purge failed: {e}")),
+        Err(e) => vault_error(e),
     }
 }
 
@@ -984,6 +1046,99 @@ rule Eicar.Test {
         let r = dispatch(&state, "POST", &format!("/api/v1/quarantine/{id}/restore"), &rbody);
         assert_eq!(r.status, 200, "{}", r.to_json());
         assert_eq!(fs::read(&dest).unwrap(), b"malicious bytes");
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn readiness_gate_refuses_to_claim_ready() {
+        let (state, base) = test_state("readiness");
+        let r = dispatch(&state, "GET", "/api/v1/readiness", b"");
+        assert_eq!(r.status, 503, "{}", r.to_json());
+        assert_eq!(r.body["production_ready"], false);
+        let caps = r.body["capabilities"].as_object().unwrap();
+        assert_eq!(
+            caps["safeos_sandbox_guest_runtime"]["state"],
+            "UNPROVEN"
+        );
+        assert!(matches!(
+            caps["safeos_sandbox_launch"]["state"].as_str(),
+            Some("UNPROVEN") | Some("BLOCKED")
+        ));
+        let tested = [
+            "on_demand_scan",
+            "quarantine",
+            "safeos_risk_assessment",
+            "safeos_fail_closed_policy",
+            "safeos_sandbox_config",
+        ];
+        for (id, cap) in caps {
+            if cap["state"] == "READY" {
+                assert!(tested.contains(&id.as_str()), "unproven READY: {id}");
+            }
+        }
+
+        let status = dispatch(&state, "GET", "/api/v1/status", b"");
+        assert_eq!(status.body["readiness"]["production_ready"], false);
+        let health = dispatch(&state, "GET", "/api/v1/health", b"");
+        assert_eq!(health.body["protection_ready"], false);
+
+        let sample = base.join("plain.txt");
+        fs::write(&sample, b"hello").unwrap();
+        let body = serde_json::to_vec(&json!({ "path": sample.display().to_string() })).unwrap();
+        let assess = dispatch(&state, "POST", "/api/v1/safeos/assess", &body);
+        assert_eq!(assess.status, 200, "{}", assess.to_json());
+        assert_eq!(assess.body["system_readiness"]["production_ready"], false);
+        assert_eq!(
+            assess.body["system_readiness"]["sandbox_guest_runtime"],
+            "UNPROVEN"
+        );
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn quarantine_http_errors_are_actionable() {
+        let (state, base) = test_state("qerrors");
+        let sample = base.join("sample.bin");
+        fs::write(&sample, b"sample").unwrap();
+        let body = serde_json::to_vec(&json!({ "path": sample.display().to_string() })).unwrap();
+        let add = dispatch(&state, "POST", "/api/v1/quarantine", &body);
+        assert_eq!(add.status, 202, "{}", add.to_json());
+        let id = add.body["id"].as_str().unwrap().to_string();
+
+        let occupied = base.join("keep.bin");
+        fs::write(&occupied, b"keep").unwrap();
+        let body = serde_json::to_vec(&json!({ "dest": occupied.display().to_string() })).unwrap();
+        let r = dispatch(
+            &state,
+            "POST",
+            &format!("/api/v1/quarantine/{id}/restore"),
+            &body,
+        );
+        assert_eq!(r.status, 409, "{}", r.to_json());
+        assert!(r.body["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("refusing to overwrite"));
+        assert_eq!(fs::read(&occupied).unwrap(), b"keep");
+
+        let r = dispatch(
+            &state,
+            "DELETE",
+            &format!("/api/v1/quarantine/{id}?confirm=true"),
+            b"",
+        );
+        assert_eq!(r.status, 200, "{}", r.to_json());
+        let r = dispatch(
+            &state,
+            "POST",
+            &format!("/api/v1/quarantine/{id}/restore"),
+            b"{}",
+        );
+        assert_eq!(r.status, 404, "{}", r.to_json());
+        assert!(r.body["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("no quarantine entry"));
         let _ = fs::remove_dir_all(&base);
     }
 

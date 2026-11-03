@@ -40,6 +40,9 @@ Record, from `status`:
 - `backends[windows_sandbox].host_supported` = true
 - `windows_sandbox_launch_implemented` = true (Windows build)
 - `windows_sandbox_launch_verified` = **false** until step 5
+- `readiness.production_ready` = **false**, and
+  `readiness.capabilities.safeos_sandbox_guest_runtime.state` = `UNPROVEN`
+  until the guest checks in step 3 actually pass on this host
 
 If `host_supported` is false, read the blocker; do not work around it.
 
@@ -176,7 +179,9 @@ Windows spawn remains unverified.
 What this does **not** prove: that `WindowsSandbox.exe` starts, that the guest
 actually shows no network, or that the mapped folder is read-only to the guest.
 Only the real-host steps above can prove those, which is why
-`LAUNCH_VERIFIED_ON_WINDOWS` remains `false`.
+`LAUNCH_VERIFIED_ON_WINDOWS` remains `false`. The readiness report is likewise
+hard-coded to `production_ready: false` and guest runtime `UNPROVEN` in this
+revision; passing step 3 is necessary evidence, not a switch that flips them.
 
 ## 5. Record the result
 

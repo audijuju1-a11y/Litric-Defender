@@ -117,6 +117,7 @@ milliseconds (asserted by a test).
 | Truncated/corrupted entry | Length-checked header, AEAD tag failure, hash mismatch on decrypt |
 | Losing the sample on a failed quarantine | Encrypt → write temp → decrypt-and-verify → rename → *then* remove original |
 | Restore clobbering user data | Restore refuses to overwrite; writes then re-hashes what landed on disk |
+| Crash during quarantine/restore/purge | `ops.jsonl` intent/done records are reconciled on vault open; an ambiguous target is preserved, never guessed away |
 
 ## 5. RansomShield
 

@@ -415,6 +415,16 @@ pub fn render_status(v: &Value) -> String {
     } else {
         s.push_str("real-time    : NOT ACTIVE\n");
     }
+    if let Some(readiness) = v.get("readiness") {
+        s.push_str(&format!(
+            "production   : {}\n",
+            if readiness["production_ready"].as_bool() == Some(true) {
+                "READY"
+            } else {
+                "NOT READY (unproven/blocked capabilities)"
+            }
+        ));
+    }
     if let Some(reason) = v["state_reason"].as_str() {
         for line in wrap(reason, 66) {
             s.push_str(&format!("reason       : {line}\n"));

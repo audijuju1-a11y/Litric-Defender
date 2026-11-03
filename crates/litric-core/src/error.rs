@@ -54,6 +54,10 @@ pub enum VaultError {
     Authentication,
     /// The restored content hash does not match the recorded hash.
     IntegrityMismatch { expected: String, actual: String },
+    /// The requested object does not exist (already restored or purged).
+    NotFound(String),
+    /// The operation would overwrite or conflict with existing user data.
+    Conflict(String),
 }
 
 impl fmt::Display for VaultError {
@@ -65,6 +69,8 @@ impl fmt::Display for VaultError {
             VaultError::IntegrityMismatch { expected, actual } => {
                 write!(f, "integrity mismatch: expected {expected}, got {actual}")
             }
+            VaultError::NotFound(m) => write!(f, "{m}"),
+            VaultError::Conflict(m) => write!(f, "{m}"),
         }
     }
 }

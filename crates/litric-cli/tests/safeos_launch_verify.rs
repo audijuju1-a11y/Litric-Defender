@@ -285,6 +285,11 @@ fn a_valid_request_writes_a_locked_down_config_and_stops_at_the_platform_gate() 
     assert!(!status["windows_sandbox_launch_verified"]
         .as_bool()
         .unwrap());
+    assert_eq!(status["readiness"]["production_ready"], false);
+    assert_eq!(
+        status["readiness"]["capabilities"]["safeos_sandbox_guest_runtime"]["state"],
+        "UNPROVEN"
+    );
     let sandbox = status["backends"]
         .as_array()
         .unwrap()

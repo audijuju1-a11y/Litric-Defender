@@ -1,6 +1,6 @@
 # SafeOS area memory
 
-Crate: `crates/litric-safeos` (39 tests). Integrated into the daemon at
+Crate: `crates/litric-safeos` (49 tests). Integrated into the daemon at
 `/api/v1/safeos/{status,assess}` and the CLI at `litric safeos {status,assess}`.
 
 ## Files

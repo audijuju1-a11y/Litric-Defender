@@ -184,7 +184,7 @@ fn every_readiness_blocker_is_named_and_reevaluated() {
         (
             json!({ "free_disk_mb": 5120 }),
             "disk",
-            "below the 20480 MB",
+            "below the 10240 MB",
         ),
     ];
     for (patch, component, detail) in cases {
@@ -293,4 +293,61 @@ fn a_valid_request_writes_a_locked_down_config_and_stops_at_the_platform_gate() 
         .unwrap();
     assert_eq!(sandbox["host_supported"], true);
     assert_eq!(sandbox["available"], false);
+}
+
+#[test]
+fn no_launch_path_executes_the_host_application() {
+    let d = start("no-host-exec");
+    let marker = d.base.join("HOST_EXECUTED.marker");
+    let canary = d.base.join("samples").join("canary.exe");
+    fs::create_dir_all(canary.parent().unwrap()).unwrap();
+    let script = format!(
+        "#!/bin/sh\nprintf 'host-executed\\n' >> '{}'\n",
+        marker.display()
+    );
+    fs::write(&canary, script).unwrap();
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&canary, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let canary_s = canary.to_str().unwrap();
+
+    // Refused before readiness: the artifact must not be touched.
+    assert_refused(&d.run(&["safeos", "launch", canary_s]), 409, "platform_agent");
+    assert!(
+        !marker.exists(),
+        "host marker created after readiness refusal"
+    );
+
+    // Refused by the path rule: still no execution.
+    assert_eq!(d.report(&good_facts()), 200);
+    assert_refused(
+        &d.run(&["safeos", "launch", r"C:\Users\alice\canary.exe"]),
+        400,
+        "user profile",
+    );
+    assert!(!marker.exists(), "host marker created after path refusal");
+
+    // Valid request, including both CLI variants: readiness and .wsb preparation
+    // succeed, then the compile-time platform gate refuses. The target itself is
+    // never executed on the host.
+    let cases: [&[&str]; 4] = [
+        &["safeos", "launch", canary_s],
+        &["safeos", "launch", canary_s, "--wait"],
+        &["safeos", "launch", canary_s, "--json"],
+        &["safeos", "launch", canary_s, "--wait", "--json"],
+    ];
+    for args in cases {
+        assert_refused(&d.run(args), 501, "requires a Windows build");
+        assert!(!marker.exists(), "host marker created by {args:?}");
+    }
+
+    assert!(canary.is_file(), "the canary must not be removed");
+    let configs = fs::read_dir(d.base.join("data").join("safeos"))
+        .expect("config dir")
+        .count();
+    assert!(
+        configs >= 1,
+        "a valid request should have prepared a .wsb before the platform gate"
+    );
 }

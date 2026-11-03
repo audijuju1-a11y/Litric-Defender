@@ -12,7 +12,7 @@ Run every step below before changing that constant or describing SafeOS as
   "Virtualization: Enabled").
 - Windows Sandbox installed (Windows Features → "Windows Sandbox"; enabling it
   needs a restart and is **your** decision — the agent never enables it).
-- ≥ 4 GB RAM and ≥ 10 GB free on C:.
+- ≥ 4 GB RAM and ≥ 10 GB free on C: for a sandbox session (≥ 20 GB for a managed Hyper-V VM).
 - An interactive desktop session. Windows Sandbox is a desktop app; a headless
   service or SSH session will not show it.
 - Build the binaries on Windows:
@@ -104,7 +104,7 @@ facts posted exactly as `litric-agent` posts them. Every refusal exited **2**.
 | Virtualization off | 409 | `virtualization: hardware virtualization (VT-x/AMD-V) is not enabled` |
 | Sandbox feature absent | 409 | `windows_sandbox: Windows Sandbox feature is not installed or not enabled` |
 | RAM 2048 MB | 409 | `memory: 2048 MB installed is below the 4096 MB minimum for isolation` |
-| Free disk 5120 MB | 409 | `disk: 5120 MB free is below the 20480 MB needed for a managed VM` |
+| Free disk 5120 MB | 409 | `disk: 5120 MB free is below the 10240 MB needed for a Windows Sandbox session` |
 | Facts fixed on the same daemon | 501 | `Windows Sandbox launch requires a Windows build` (readiness re-evaluated, no cache) |
 | Drive root `C:\` | 400 | `refusing to map an entire volume into the sandbox` |
 | User profile `C:\Users\alice\app.exe` | 400 | `refusing to map a user profile into the sandbox` |
@@ -126,6 +126,23 @@ and `host_supported=true` / `available=false` for the sandbox backend.
 Drive root and user profile are rejected from the **raw path before access**, so
 the rule is testable here without those paths existing. The guest filename rule
 is what keeps a hostile filename from walking out of the read-only mapping.
+
+### Host-execution canary
+
+A canary executable (`#!/bin/sh` that appends to a marker file) was placed at the
+launch path. As a control, running it directly created the marker. The marker was
+then deleted and the real `litric` → `litricd` path was driven with:
+
+* no facts (409), user-profile path (400), valid app (501), valid `--wait` (501),
+  valid `--json` (501), valid `--wait --json` (501).
+
+No marker was created in any case, the canary still existed afterwards, and the
+valid requests still produced the `.wsb`. The automated proof lives in
+`crates/litric-cli/tests/safeos_launch_verify.rs`
+(`no_launch_path_executes_the_host_application`).
+
+Writing the `.wsb` before the platform gate is preparation, not execution: it
+touches the config directory only, never the target.
 
 What this does **not** prove: that `WindowsSandbox.exe` starts, that the guest
 actually shows no network, or that the mapped folder is read-only to the guest.

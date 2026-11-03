@@ -221,7 +221,16 @@ impl Readiness {
 
         let sandbox_disk_ok = facts.free_disk_mb >= MIN_DISK_SANDBOX_MB;
         let vm_disk_ok = facts.free_disk_mb >= MIN_DISK_VM_MB;
-        if !vm_disk_ok {
+        if !sandbox_disk_ok {
+            blockers.push(Blocker {
+                component: "disk",
+                reason: format!(
+                    "{} MB free is below the {} MB needed for a Windows Sandbox session",
+                    facts.free_disk_mb, MIN_DISK_SANDBOX_MB
+                ),
+                remediation: "free disk space; Litric will not delete user data to make room".into(),
+            });
+        } else if !vm_disk_ok {
             blockers.push(Blocker {
                 component: "disk",
                 reason: format!(

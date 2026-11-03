@@ -34,7 +34,7 @@ reports itself unavailable rather than being simulated.
 | Secure file broker (import/export) | Litric | TESTED |
 | Session journal + recovery planner | Litric | TESTED |
 | Windows Sandbox configuration generation | Litric | TESTED |
-| Windows Sandbox launch | Litric (planned) | BLOCKED — needs Windows 11 |
+| Windows Sandbox launch | Litric | IMPLEMENTED (Windows only), UNVERIFIED on a real host |
 | Hyper-V VM backend | Litric (planned) | BLOCKED — needs Windows + Hyper-V |
 | Network gateway / WFP / WinNAT | Litric (planned) | BLOCKED — needs Windows + admin |
 | Guest behaviour monitoring | Litric (planned) | BLOCKED — needs Windows ETW |

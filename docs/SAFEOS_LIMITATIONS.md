@@ -4,10 +4,11 @@ Read this before trusting any SafeOS claim elsewhere.
 
 ## 1. SafeOS does not isolate anything yet
 
-There is no VM, no sandbox launch, no network gateway and no host driver in this
-repository. `litric safeos assess` classifies an application and returns a policy
-decision; it cannot execute it in isolation. On this build the decision for any
-unverified application is `deny`, because no isolation backend exists.
+There is no Hyper-V backend, network gateway or host driver. A Windows Sandbox
+launcher exists in Windows builds, but it has **never been run on a real host**
+and Linux builds refuse it with 501. `litric safeos assess` still returns `deny`
+for every unverified application because policy uses an empty backend set;
+launching is an explicit, separate command, not automatic enforcement.
 
 ## 2. The Windows half is BLOCKED, by environment
 
@@ -15,7 +16,8 @@ This work was produced on Linux with no Windows host, no Hyper-V, no WFP and no
 WDK. Consequently:
 
 * no Hyper-V provisioning, differencing VHDX lifecycle or checkpoint logic,
-* no Windows Sandbox launch (configuration generation only),
+* no verified Windows Sandbox launch: the code exists for Windows builds and
+  compiles, but no real session has been started, so it is UNVERIFIED,
 * no WFP provider/sublayer/filters, no WinNAT integration,
 * no ETW guest telemetry or behaviour correlation,
 * no Windows UI, installer or service registration.

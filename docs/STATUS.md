@@ -141,7 +141,7 @@ BLOCKED in this environment (Linux, no Hyper-V/WFP/WDK).
 | Secure file broker: staged import/export, SHA-256 verify, approval, scan gate | TESTED | `broker.rs`, 9 tests incl. symlink/traversal/ADS/overwrite |
 | Session journal, crash detection, idempotent cleanup planner | TESTED | `journal.rs`, 5 tests |
 | Windows Sandbox `.wsb` generation (network/redirect off, read-only maps) | TESTED | `sandbox.rs`, 6 tests |
-| Windows Sandbox launch | BLOCKED | requires a Windows 11 host; not written |
+| Windows Sandbox launch (Windows builds only) | IMPLEMENTED, UNVERIFIED | runtime readiness gate + `.wsb` + spawn behind `cfg(windows)`, 5 tests; Linux returns 501. Never executed on a real host yet — see `docs/SAFEOS_WINDOWS_VERIFICATION.md` |
 | Hyper-V managed backend, VHDX lifecycle | BLOCKED | requires Windows + Hyper-V; not written |
 | Local network gateway, WFP, WinNAT integration | BLOCKED | requires Windows + admin; not written |
 | Guest behaviour monitoring / ETW correlation | BLOCKED | requires a running guest |

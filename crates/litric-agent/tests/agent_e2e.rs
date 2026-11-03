@@ -54,6 +54,26 @@ fn get_json(addr: &str, path: &str) -> serde_json::Value {
     serde_json::from_str(body).expect("json body")
 }
 
+fn post_json(addr: &str, path: &str, body: &serde_json::Value) -> (u16, serde_json::Value) {
+    let body = body.to_string();
+    let mut s = TcpStream::connect(addr).unwrap();
+    let req = format!(
+        "POST {path} HTTP/1.1\r\nHost: {addr}\r\nAuthorization: Bearer {TOKEN}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    s.write_all(req.as_bytes()).unwrap();
+    let mut resp = String::new();
+    s.read_to_string(&mut resp).unwrap();
+    let code = resp
+        .lines()
+        .next()
+        .and_then(|l| l.split_whitespace().nth(1))
+        .and_then(|c| c.parse().ok())
+        .unwrap_or(0);
+    let body = resp.split_once("\r\n\r\n").map(|(_, b)| b).unwrap_or("");
+    (code, serde_json::from_str(body).unwrap_or_default())
+}
+
 fn write_fixture(path: &Path, nat_ok: bool) {
     let text = format!(
         r#"{{
@@ -187,3 +207,54 @@ fn invalid_report_is_rejected_and_does_not_replace_good_facts() {
     assert_eq!(status["host_facts_known"], true);
     assert_eq!(status["host_facts"]["windows_build"], 22631);
 }
+
+#[test]
+fn launch_is_refused_until_facts_are_reported() {
+    let (handle, token) = start("launch-not-ready");
+    let addr = handle.addr.to_string();
+    let base = token.parent().unwrap().to_path_buf();
+    let app = base.join("sample.exe");
+    fs::write(&app, b"MZ").unwrap();
+
+    let (code, body) = post_json(
+        &addr,
+        "/api/v1/safeos/launch",
+        &serde_json::json!({ "path": app.to_str().unwrap() }),
+    );
+    assert_eq!(code, 409, "body: {body}");
+    assert!(body["error"].as_str().unwrap().contains("not ready"));
+}
+
+#[cfg(not(windows))]
+#[test]
+fn launch_refuses_politely_without_a_windows_launcher() {
+    let (handle, token) = start("launch-platform");
+    let addr = handle.addr.to_string();
+    let base = token.parent().unwrap().to_path_buf();
+    let fixture = base.join("facts.json");
+    let app = base.join("sample.exe");
+    write_fixture(&fixture, true);
+    fs::write(&app, b"MZ").unwrap();
+
+    let out = Command::new(env!("CARGO_BIN_EXE_litric-agent"))
+        .args([
+            "--fixture",
+            fixture.to_str().unwrap(),
+            "--addr",
+            &addr,
+            "--token-file",
+            token.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run agent");
+    assert!(out.status.success());
+
+    let (code, body) = post_json(
+        &addr,
+        "/api/v1/safeos/launch",
+        &serde_json::json!({ "path": app.to_str().unwrap() }),
+    );
+    assert_eq!(code, 501, "body: {body}");
+    assert!(body["error"].as_str().unwrap().contains("Windows build"));
+}
+

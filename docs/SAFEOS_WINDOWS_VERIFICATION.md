@@ -1,0 +1,116 @@
+# SafeOS — manual verification on a real Windows 11 host
+
+`LAUNCH_VERIFIED_ON_WINDOWS` is **false** today. The launcher exists in Windows
+builds, but it has never been executed on a real host by the person who wrote it.
+Run every step below before changing that constant or describing SafeOS as
+"working on Windows".
+
+## 0. Preconditions (read-only checks)
+
+- Windows 11 Pro/Enterprise, build **≥ 22000** (`winver`).
+- Virtualization enabled in firmware (Task Manager → Performance → CPU →
+  "Virtualization: Enabled").
+- Windows Sandbox installed (Windows Features → "Windows Sandbox"; enabling it
+  needs a restart and is **your** decision — the agent never enables it).
+- ≥ 4 GB RAM and ≥ 10 GB free on C:.
+- An interactive desktop session. Windows Sandbox is a desktop app; a headless
+  service or SSH session will not show it.
+- Build the binaries on Windows:
+
+```powershell
+cargo build --release
+```
+
+The Linux build only proves the code compiles; it cannot spawn `WindowsSandbox.exe`.
+
+## 1. Start the daemon and collect facts
+
+```powershell
+.\target\release\litricd.exe serve --addr 127.0.0.1:8787 --data-dir .\litric-data --rules rules
+.\target\release\litric-agent.exe --print
+.\target\release\litric-agent.exe
+.\target\release\litric.exe safeos status
+```
+
+Record, from `status`:
+
+- `host_facts_known` = true
+- `host_facts.windows_build` matches `winver`
+- `host_facts.sandbox_feature_present` = true
+- `backends[windows_sandbox].host_supported` = true
+- `windows_sandbox_launch_implemented` = true (Windows build)
+- `windows_sandbox_launch_verified` = **false** until step 5
+
+If `host_supported` is false, read the blocker; do not work around it.
+
+## 2. Prepare without executing
+
+Use a harmless sample first (copy of `notepad.exe` or a tiny signed tool):
+
+```powershell
+.\target\release\litric.exe safeos launch .\samples\sample.exe --json
+```
+
+Expected on a ready host: a sandbox window opens. If you only want to inspect the
+plan first, the daemon has already written:
+
+```
+.\litric-data\safeos\litric-sandbox-<timestamp>.wsb
+```
+
+Check the file yourself:
+
+- `<Networking>Disable</Networking>`
+- `<ClipboardRedirection>Disable</ClipboardRedirection>`
+- `<ReadOnly>true</ReadOnly>`
+- the mapped folder is the sample's own folder, never `C:\` or a user profile
+- `<Command>` points at `C:\Litric\input\0\<file>`
+
+## 3. Verify the boundary from inside the guest
+
+Inside the sandbox window:
+
+1. `ping 1.1.1.1` fails / "Network cable unplugged" — networking is off.
+2. Copy text in Notepad and try to paste it on the host — clipboard redirection is
+   off in both directions.
+3. Try to create a file in `C:\Litric\input\0\` — the mapping is read-only.
+4. Confirm the app started from the mapped folder (Task Manager → Details).
+
+## 4. Verify refusals (these must fail, not fall back)
+
+| Scenario | Expected |
+|---|---|
+| `litric safeos launch` with daemon stopped | client error with start instructions, exit 2 |
+| `launch` before `litric-agent` has reported | HTTP 409 "sandbox is not ready" |
+| facts with `sandbox_feature_present=false` | 409 + feature blocker |
+| facts with 2 GB RAM / 5 GB free disk | 409 + memory/disk blocker |
+| app inside a user profile (e.g. `C:\Users\you\app.exe`) | 400 invalid launch request (never maps profiles) |
+| launch on a Linux build | HTTP 501 "requires a Windows build" |
+| `launch` a directory | 400 "must be a regular file" |
+
+Also confirm the host is untouched after refusals: no new Hyper-V VM, no new
+WinNAT network (`Get-NetNat`), no Windows feature changed.
+
+## 5. Record the result
+
+Capture (redact usernames if you publish them):
+
+- `litric safeos status --json` and `litric-agent --print`
+- the `.wsb` file
+- the sandbox screenshot showing no network and the app running
+- the refusal outputs above
+
+Then update `LAUNCH_VERIFIED_ON_WINDOWS` to `true` in
+`crates/litric-safeos/src/sandbox.rs`, update the STATUS row from
+"IMPLEMENTED, UNVERIFIED" to "TESTED on hardware", and rerun `cargo test`.
+
+## Known limits even after this passes
+
+- Session is **explicit**: only apps launched through `litric safeos launch` are
+  isolated. There is no App Control / shell interception yet.
+- Windows Sandbox is Microsoft's boundary; a hypervisor escape is out of scope.
+- The launcher does not broker files into the guest beyond a read-only mapping,
+  and does not export anything back automatically.
+- No WFP gateway or Hyper-V backend exists; sandbox networking is always disabled.
+- Waiting (`--wait`) may return when the sandbox client exits, not when the guest
+  is fully torn down; verify with Task Manager.

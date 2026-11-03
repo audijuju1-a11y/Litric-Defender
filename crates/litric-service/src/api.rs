@@ -104,6 +104,7 @@ pub fn dispatch(state: &AppState, method: &str, url: &str, body: &[u8]) -> ApiRe
         ("POST", ["api", "v1", "ranshield", "events"]) => ranshield_events(state, body),
         ("GET", ["api", "v1", "safeos", "status"]) => ok(safeos_status(state)),
         ("POST", ["api", "v1", "safeos", "host-facts"]) => safeos_host_facts(state, body),
+        ("POST", ["api", "v1", "safeos", "launch"]) => safeos_launch(state, body, query),
         ("POST", ["api", "v1", "safeos", "assess"]) => safeos_assess(state, body),
         _ => not_found(format!("no route for {method} {path}")),
     }
@@ -139,7 +140,8 @@ pub fn capabilities() -> Value {
         "safeos_windows_sandbox_config": true,
         "safeos_host_agent": true,
         "safeos_host_facts_ingest": true,
-        "safeos_windows_sandbox_launch": false,
+        "safeos_windows_sandbox_launch": litric_safeos::sandbox::LAUNCH_IMPLEMENTED,
+        "safeos_windows_sandbox_launch_verified": litric_safeos::sandbox::LAUNCH_VERIFIED_ON_WINDOWS,
         "safeos_hyperv_backend": false,
         "safeos_network_gateway": false
     })
@@ -467,6 +469,7 @@ fn safeos_status(state: &AppState) -> Value {
             }))
             .collect::<Vec<_>>(),
         "windows_sandbox_launch_implemented": litric_safeos::sandbox::LAUNCH_IMPLEMENTED,
+        "windows_sandbox_launch_verified": litric_safeos::sandbox::LAUNCH_VERIFIED_ON_WINDOWS,
         "hyperv_backend_implemented": false,
         "network_gateway_implemented": false,
     })
@@ -565,6 +568,64 @@ fn safeos_assess(state: &AppState, body: &[u8]) -> ApiResponse {
         "isolation_available": false,
         "note": "no isolation backend is present in this build; the decision is fail-closed",
     }))
+}
+
+/// Prepares and, on Windows builds, starts a disposable sandbox session.
+///
+/// `prepare` always runs first: without reported facts and a usable sandbox
+/// feature the request is refused with 409, and no process is created.
+fn safeos_launch(state: &AppState, body: &[u8], query: &str) -> ApiResponse {
+    use litric_safeos::sandbox::{launch, prepare, LaunchError};
+
+    let v: Value = match serde_json::from_slice(body) {
+        Ok(v) => v,
+        Err(e) => return bad_request(format!("invalid JSON body: {e}")),
+    };
+    let Some(raw) = v["path"].as_str() else {
+        return bad_request("field `path` is required");
+    };
+    let path = match std::fs::canonicalize(raw) {
+        Ok(p) => p,
+        Err(e) => return bad_request(format!("cannot access `{raw}`: {e}")),
+    };
+    if !path.is_file() {
+        return bad_request("`path` must be a regular file");
+    }
+    let facts = state
+        .host_facts
+        .lock()
+        .ok()
+        .and_then(|f| f.clone())
+        .unwrap_or_else(HostFacts::unknown);
+    let wait = query.split('&').any(|kv| kv == "wait=true");
+    let prepared = match prepare(&facts, &path, &state.data_dir.join("safeos")) {
+        Ok(p) => p,
+        Err(LaunchError::NotReady(reasons)) => {
+            return err(
+                409,
+                format!("sandbox is not ready: {}", reasons.join("; ")),
+            )
+        }
+        Err(e) => return err(400, e.to_string()),
+    };
+    match launch(&prepared, wait) {
+        Ok(outcome) => ok(json!({
+            "config_path": outcome.config_path.display().to_string(),
+            "command": outcome.command,
+            "pid": outcome.pid,
+            "exit_code": outcome.exit_code,
+            "waited": wait,
+            "launch_verified": litric_safeos::sandbox::LAUNCH_VERIFIED_ON_WINDOWS,
+            "note": "Windows Sandbox is a disposable, offline, interactive session; it does not \
+                     protect the host from a sandbox escape, and closing the window ends the session",
+        })),
+        Err(LaunchError::NotWindows) => err(
+            501,
+            "Windows Sandbox launch requires a Windows build; this daemon cannot launch it",
+        ),
+        Err(LaunchError::Spawn(m)) => err(500, format!("sandbox launch failed: {m}")),
+        Err(e) => err(400, e.to_string()),
+    }
 }
 
 // ---------------------------------------------------------------------------

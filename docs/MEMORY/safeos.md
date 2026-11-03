@@ -12,7 +12,7 @@ Crate: `crates/litric-safeos` (39 tests). Integrated into the daemon at
 | `policy.rs` | `decide(level, BackendSet)` -> fail-closed `Action` | 6 |
 | `broker.rs` | staged import/export, hash verify, scan gate | 9 |
 | `journal.rs` | JSONL session journal, recovery, cleanup planner | 5 |
-| `sandbox.rs` | `.wsb` XML generation, validation | 6 |
+| `sandbox.rs` | `.wsb` generation, readiness-gated prepare, cfg(windows) launch | 11 |
 
 ## Invariants (do not break)
 
@@ -51,5 +51,8 @@ Crate: `crates/litric-safeos` (39 tests). Integrated into the daemon at
   policy branch and tests asserting no host fallback.
 * New evidence type? Extend `ApplicationFacts`, add it to `assess` *before* the
   trusted branch, and add a test proving unsigned/unknown handling is unchanged.
+* `launch` must never be reachable without `prepare` (readiness + config), and
+  non-Windows builds must return `NotWindows`, never a host fallback.
+* `LAUNCH_VERIFIED_ON_WINDOWS` stays false until the manual checklist passes.
 * New broker operation? Reuse `safe_file_name` and `hash_file`; never accept a
   path outside `Broker::root`.

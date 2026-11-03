@@ -209,6 +209,13 @@ impl Client {
         self.post("/api/v1/safeos/assess", &json!({ "path": path }))
     }
 
+    pub fn safeos_launch(&self, path: &str, wait: bool) -> Result<Value, ClientError> {
+        self.post(
+            &format!("/api/v1/safeos/launch?wait={wait}"),
+            &json!({ "path": path }),
+        )
+    }
+
     // --- transport -------------------------------------------------------
 
     fn post(&self, path: &str, body: &Value) -> Result<Value, ClientError> {
@@ -700,6 +707,37 @@ pub fn render_safeos_assessment(v: &Value) -> String {
     }
     if let Some(r) = v["remediation"].as_str() {
         s.push_str(&format!("remediation : {r}\n"));
+    }
+    s
+}
+
+pub fn render_safeos_launch(v: &Value) -> String {
+    let mut s = String::new();
+    s.push_str(&format!(
+        "sandbox      : started (pid {})\n",
+        v["pid"].as_u64().unwrap_or(0)
+    ));
+    s.push_str(&format!(
+        "config       : {}\n",
+        v["config_path"].as_str().unwrap_or("?")
+    ));
+    s.push_str(&format!(
+        "command      : {}\n",
+        v["command"].as_str().unwrap_or("?")
+    ));
+    if let Some(code) = v["exit_code"].as_i64() {
+        s.push_str(&format!("exit code    : {code}\n"));
+    }
+    s.push_str(&format!(
+        "verified     : {}\n",
+        if v["launch_verified"].as_bool().unwrap_or(false) {
+            "yes (checked on this host)"
+        } else {
+            "NO — manual checklist not completed yet"
+        }
+    ));
+    if let Some(note) = v["note"].as_str() {
+        s.push_str(&format!("note         : {note}\n"));
     }
     s
 }

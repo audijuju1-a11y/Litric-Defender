@@ -174,6 +174,15 @@ enum SafeosCmd {
         #[arg(long)]
         json: bool,
     },
+    /// Launch an application in a disposable, offline Windows Sandbox session.
+    Launch {
+        file: PathBuf,
+        /// Wait for the sandbox process to exit before returning.
+        #[arg(long)]
+        wait: bool,
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -409,6 +418,16 @@ fn run(cli: Cli) -> Result<ExitCode, Box<dyn std::error::Error>> {
                         println!("{}", serde_json::to_string_pretty(&v)?);
                     } else {
                         print!("{}", client::render_safeos_status(&v));
+                    }
+                    Ok(ExitCode::SUCCESS)
+                }
+                SafeosCmd::Launch { file, wait, json } => {
+                    let target = canonical(&file)?;
+                    let v = c.safeos_launch(&target.display().to_string(), wait)?;
+                    if json {
+                        println!("{}", serde_json::to_string_pretty(&v)?);
+                    } else {
+                        print!("{}", client::render_safeos_launch(&v));
                     }
                     Ok(ExitCode::SUCCESS)
                 }

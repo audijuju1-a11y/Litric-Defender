@@ -14,7 +14,7 @@ component, not that it is scheduled.
 | Session journal + recovery | TESTED | `journal.rs`, 5 tests incl. crash recovery and idempotent cleanup |
 | Windows Sandbox `.wsb` generation | TESTED | `sandbox.rs`, 6 tests: networking off, redirection off, read-only maps |
 | Windows platform agent (read-only facts) | PARTIAL | collector + ingest TESTED offline with fixtures and a real daemon; not executed on a real Windows host in this environment |
-| Windows Sandbox launch | BLOCKED | requires Windows 11 with the Sandbox feature; nothing launches here |
+| Windows Sandbox launch | PARTIAL — IMPLEMENTED, UNVERIFIED | readiness gate + `.wsb` + spawn compiled only for Windows; refused with 501 elsewhere. Not yet run on a real Windows host |
 | Hyper-V managed VM | BLOCKED | requires Windows 11 + Hyper-V + admin; no implementation |
 | Local network gateway | BLOCKED | requires WFP + WinNAT on Windows; no implementation |
 | WFP policy provider | BLOCKED | no Windows host, no way to test filter isolation |

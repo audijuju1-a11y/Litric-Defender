@@ -278,7 +278,7 @@ pub fn backend_status(facts: &HostFacts) -> Vec<BackendStatus> {
             kind: "windows_sandbox",
             available: r.sandbox_usable,
             reason: if r.sandbox_usable {
-                "Windows Sandbox feature detected; sessions are generated offline-only".into()
+                "Windows Sandbox feature detected; sessions are offline-only (networking disabled)".into()
             } else {
                 first_reason(&r, "windows_sandbox")
             },

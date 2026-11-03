@@ -15,7 +15,9 @@
 //! * **Never follows links out of scope.** Symlinks and reparse points are
 //!   skipped by default; hard links are de-duplicated by inode on Unix.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
+#[cfg(unix)]
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -346,6 +348,7 @@ impl<'a> Scanner<'a> {
         let deadline = self.limits.deadline.map(|d| Instant::now() + d);
 
         let mut stack: Vec<PathBuf> = vec![root.to_path_buf()];
+        #[cfg(unix)]
         let mut seen_inodes: HashSet<(u64, u64)> = HashSet::new();
         let mut since_progress: u32 = 0;
 

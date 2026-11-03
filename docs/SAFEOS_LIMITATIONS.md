@@ -1,5 +1,7 @@
 # Litric SafeOS — known limitations
 
+> **Production readiness: NOT READY.** See `docs/SAFEOS_READINESS.md`.
+
 Read this before trusting any SafeOS claim elsewhere.
 
 ## 1. SafeOS does not isolate anything yet

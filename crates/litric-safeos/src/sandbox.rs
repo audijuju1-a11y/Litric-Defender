@@ -86,7 +86,7 @@ pub fn to_wsb(plan: &SandboxPlan) -> Result<String, String> {
             x.push_str("    <MappedFolder>\n");
             x.push_str(&format!(
                 "      <HostFolder>{}</HostFolder>\n",
-                escape(&input.display().to_string())
+                escape(&host_path_for_wsb(input))
             ));
             x.push_str(&format!(
                 "      <SandboxFolder>C:\\Litric\\input\\{i}</SandboxFolder>\n"
@@ -103,6 +103,24 @@ pub fn to_wsb(plan: &SandboxPlan) -> Result<String, String> {
     }
     x.push_str("</Configuration>\n");
     Ok(x)
+}
+
+/// Windows canonicalisation returns verbatim paths (`\\?\C:\...`). Windows
+/// Sandbox and the `.wsb` document expect normal paths, so strip the prefix.
+pub fn host_path_for_wsb(path: &Path) -> String {
+    let s = path.to_string_lossy();
+    if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
+        return format!(r"\\{rest}");
+    }
+    if let Some(rest) = s.strip_prefix(r"\\?\") {
+        return rest.to_string();
+    }
+    s.to_string()
+}
+
+/// Keep the host usable: a quarter of reported RAM, bounded to 2-4 GB.
+fn sandbox_ram_mb(facts: &HostFacts) -> u32 {
+    (facts.total_ram_mb / 4).clamp(2048, 4096) as u32
 }
 
 fn escape(s: &str) -> String {
@@ -274,7 +292,7 @@ pub fn prepare(
     // The app is mapped read-only at C:\Litric\input\0 inside the guest.
     let command = format!("\"C:\\Litric\\input\\0\\{name}\"");
     let plan = SandboxPlan {
-        ram_mb: 4096,
+        ram_mb: sandbox_ram_mb(facts),
         vgpu: false,
         read_only_inputs: vec![parent.to_path_buf()],
         logon_command: Some(command.clone()),
@@ -449,6 +467,35 @@ mod tests {
             prepare(&facts, &app, &dir.join("cfg")),
             Err(LaunchError::NotReady(_))
         ));
+    }
+
+    #[test]
+    fn verbatim_host_paths_are_rewritten_for_the_wsb() {
+        let plan = SandboxPlan {
+            read_only_inputs: vec![PathBuf::from(r"\\?\C:\ProgramData\Litric\stage\s1")],
+            ..Default::default()
+        };
+        let xml = to_wsb(&plan).unwrap();
+        assert!(
+            xml.contains(r"<HostFolder>C:\ProgramData\Litric\stage\s1</HostFolder>"),
+            "{xml}"
+        );
+        assert!(!xml.contains(r"\\?\"), "{xml}");
+        assert_eq!(
+            host_path_for_wsb(Path::new(r"\\?\UNC\server\share\a")),
+            r"\\server\share\a"
+        );
+    }
+
+    #[test]
+    fn sandbox_memory_scales_with_reported_ram() {
+        let mut f = good_facts();
+        f.total_ram_mb = 4096;
+        assert_eq!(sandbox_ram_mb(&f), 2048);
+        f.total_ram_mb = 16384;
+        assert_eq!(sandbox_ram_mb(&f), 4096);
+        f.total_ram_mb = 65536;
+        assert_eq!(sandbox_ram_mb(&f), 4096);
     }
 
     #[test]

@@ -130,7 +130,8 @@ Nothing in this file may be upgraded without the corresponding code and test.
 ## 10. SafeOS (application isolation)
 
 Checked against the actual code in `crates/litric-safeos`; the Windows half is
-BLOCKED in this environment (Linux, no Hyper-V/WFP/WDK).
+BLOCKED in this environment (Linux, no Hyper-V/WFP/WDK). **Production readiness:
+NOT READY** — see `docs/SAFEOS_READINESS.md` for the criterion-by-criterion verdict.
 
 | Feature | State | Evidence / notes |
 |---|---|---|
@@ -140,7 +141,7 @@ BLOCKED in this environment (Linux, no Hyper-V/WFP/WDK).
 | Fail-closed execution policy | TESTED | `policy.rs`, 6 tests; non-trusted levels can never run on host |
 | Secure file broker: staged import/export, SHA-256 verify, approval, scan gate | TESTED | `broker.rs`, 9 tests incl. symlink/traversal/ADS/overwrite |
 | Session journal, crash detection, idempotent cleanup planner | TESTED | `journal.rs`, 5 tests |
-| Windows Sandbox `.wsb` generation (network/redirect off, read-only maps) | TESTED | `sandbox.rs`, 6 tests |
+| Windows Sandbox `.wsb` generation (network/redirect off, read-only maps, verbatim-path rewrite, RAM sizing) | TESTED | `sandbox.rs` unit tests incl. locked-down XML and path normalization |
 | Windows Sandbox launch (Windows builds only) | IMPLEMENTED, UNVERIFIED | runtime readiness gate + `.wsb` + spawn behind `cfg(windows)`; every readiness blocker and path rule reproduced end-to-end via daemon+CLI on Linux (409/400/501), `cargo check --all-targets` and clippy clean for `x86_64-pc-windows-gnu`. Never executed on a real host yet — see `docs/SAFEOS_WINDOWS_VERIFICATION.md` |
 | Hyper-V managed backend, VHDX lifecycle | BLOCKED | requires Windows + Hyper-V; not written |
 | Local network gateway, WFP, WinNAT integration | BLOCKED | requires Windows + admin; not written |
@@ -157,3 +158,8 @@ Not working: any form of OS-level enforcement, the Windows UI, the installer, an
 all kernel components. A user cannot yet *install* Litric Defender, and it does
 not replace Microsoft Defender. It must not be described as providing real-time
 protection.
+
+**SafeOS is not production-ready.** It has a tested safety core and a
+compile-checked Windows Sandbox launcher, but no Hyper-V backend, WFP/WinNAT
+gateway, behaviour monitoring, UI, installer or real-host verification. Details:
+`docs/SAFEOS_READINESS.md`.

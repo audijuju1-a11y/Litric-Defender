@@ -1,6 +1,6 @@
 # SafeOS area memory
 
-Crate: `crates/litric-safeos` (49 tests). Integrated into the daemon at
+Crate: `crates/litric-safeos` (51 tests). Integrated into the daemon at
 `/api/v1/safeos/{status,assess}` and the CLI at `litric safeos {status,assess}`.
 
 ## Files
@@ -12,7 +12,7 @@ Crate: `crates/litric-safeos` (49 tests). Integrated into the daemon at
 | `policy.rs` | `decide(level, BackendSet)` -> fail-closed `Action` | 6 |
 | `broker.rs` | staged import/export, hash verify, scan gate | 9 |
 | `journal.rs` | JSONL session journal, recovery, cleanup planner | 5 |
-| `sandbox.rs` | `.wsb` generation, readiness-gated prepare, path/name safety, cfg(windows) launch | 15 |
+| `sandbox.rs` | `.wsb` generation, readiness-gated prepare, path/name safety, verbatim-path rewrite, RAM sizing, cfg(windows) launch | 17 |
 
 ## Invariants (do not break)
 

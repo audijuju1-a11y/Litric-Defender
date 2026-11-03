@@ -2,7 +2,8 @@
 
 This file is the authoritative list of what SafeOS can and cannot do. It is
 deliberately blunt: `BLOCKED` means the environment cannot produce or verify the
-component, not that it is scheduled.
+component, not that it is scheduled. **Production readiness: NOT READY** — see
+`docs/SAFEOS_READINESS.md`.
 
 ## 1. Backends
 

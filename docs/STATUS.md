@@ -90,7 +90,8 @@ Nothing in this file may be upgraded without the corresponding code and test.
 
 | Feature | State |
 |---|---|
-| CLI scanner, rule lint, DB build/verify, quarantine ops, bench | TESTED |
+| CLI client (`litric`): status / scan with live progress / analyze / quarantine-list over the daemon API, with `--local` standalone escape hatch | TESTED — 8 end-to-end tests invoke the real binary against a real daemon |
+| Rule lint, DB build/verify, bench (in-process engine tooling) | TESTED |
 | Local API backend (`litricd`): loopback HTTP/JSON, bearer auth, scan jobs with live progress + cancellation, analyze, quarantine control, settings/history persistence, RansomShield event ingestion | TESTED — 14 service tests incl. socket-level auth |
 | Native Windows GUI (WinUI 3 / WPF) with all 22 sections | PLANNED — no Windows host to build or test it |
 | Tray icon, notifications, threat explanations UI | PLANNED |

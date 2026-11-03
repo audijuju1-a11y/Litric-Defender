@@ -54,6 +54,22 @@ verify / purge-with-confirmation), `/settings`, `/history`, `/ranshield/events`.
 `/status` reports `state: "limited"` and `real_time_protection: false` on a host
 without the kernel sensor — it will not display a green shield it has not earned.
 
+The CLI is a client of that daemon; it does not scan in-process unless you ask:
+
+```bash
+litric status                       # honest protection state, from the daemon
+litric scan C:\\Users            # queues a job, prints live progress, then the result
+litric analyze suspicious.exe       # evidence behind the verdict
+litric quarantine list             # what the service is holding
+```
+
+Every command takes `--addr` and `--token-file` (or `LITRIC_ADDR` /
+`LITRIC_TOKEN_FILE`; default `127.0.0.1:8787` and `./litric-data/api.token`).
+If the daemon is down or the token is missing/rejected, the CLI exits non-zero
+with instructions — it never falls back to the embedded engine on its own.
+Pass `--local` to explicitly scan without a daemon (results are not shared with
+the service).
+
 Windows cross-check (compiles the portable crates against the Windows target):
 
 ```bash

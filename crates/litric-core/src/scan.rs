@@ -21,9 +21,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
-#[cfg(test)]
-use std::sync::atomic::AtomicU64;
-
 /// Progress callback invoked periodically while a scan runs.
 pub type ProgressFn = Arc<dyn Fn(&ScanSummary) + Send + Sync>;
 

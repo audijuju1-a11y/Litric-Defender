@@ -1,10 +1,14 @@
 [package]
 name = "litric-cli"
-description = "Litric Defender command line scanner and engine tooling"
+description = "Litric Defender command line client and engine tooling"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+
+[lib]
+name = "litric_cli"
+path = "src/lib.rs"
 
 [[bin]]
 name = "litric"
@@ -15,3 +19,6 @@ litric-core = { path = "../litric-core" }
 clap.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+
+[dev-dependencies]
+litric-service = { path = "../litric-service" }

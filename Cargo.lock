@@ -367,6 +367,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "litric-core",
+ "litric-service",
  "serde",
  "serde_json",
 ]

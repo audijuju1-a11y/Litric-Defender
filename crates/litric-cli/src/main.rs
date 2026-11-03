@@ -1,95 +1,159 @@
-//! `litric` — Litric Defender command line scanner and engine tooling.
+//! `litric` — Litric Defender command line client.
 //!
-//! This is the reference front-end for the engine. It is a real scanner: the
-//! same `litric-core` code that the Windows service uses. On Windows it can be
-//! registered as a shell-context "Scan with Litric" handler.
+//! Operational commands (`status`, `scan`, `analyze`, `quarantine`) go through
+//! the running `litricd` daemon over its local API by default. That is the
+//! supported path: one scanner, one threat database, one quarantine, one audit
+//! trail — shared by the UI and the CLI.
+//!
+//! `--local` is an explicit, clearly-labelled escape hatch that uses the embedded
+//! engine for standalone scanning (forensics, CI, offline hosts). It never
+//! triggers automatically: if the daemon is down, the client says so.
+//!
+//! Rule authoring and database publishing (`rules lint`, `db build`, `db verify`,
+//! `bench`) are in-process by design; they operate on engine artifacts, not on
+//! the running protection state.
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use clap::{Parser, Subcommand};
+use serde_json::Value;
 
-use litric_core::engine::{Engine, EngineConfig, FileReport};
+use litric_cli::client::{self, Client};
+use litric_core::engine::{Engine, EngineConfig};
 use litric_core::quarantine::QuarantineVault;
-use litric_core::rules::{parse_rule_file, RuleSet};
-use litric_core::scan::{ScanCache, ScanLimits, Scanner};
+use litric_core::rules::{parse_rule_file, Rule, RuleSet};
+use litric_core::scan::{ScanLimits, ScanSummary, Scanner};
 use litric_core::threatdb::{
-    build_signed, dev_signing_key, DbPayload, DbTrust, HashEntry, RuleSource, ThreatDb,
-    DB_FORMAT_VERSION,
+    build_signed, dev_signing_key, DbPayload, HashEntry, RuleSource, ThreatDb, DB_FORMAT_VERSION,
 };
 
 #[derive(Parser)]
 #[command(
     name = "litric",
     version = litric_core::ENGINE_VERSION,
-    about = "Litric Defender engine: scanner, rule tooling and quarantine vault",
-    long_about = None
+    about = "Litric Defender client: drives the litricd daemon, or scans standalone with --local",
+    long_about = "Litric Defender CLI.\n\n\
+        By default every operational command talks to the running litricd daemon \
+        (127.0.0.1:8787) using its bearer token. If the daemon is not running or the \
+        token is missing, the command fails with instructions instead of quietly \
+        scanning in-process.\n\n\
+        Use --local for standalone scanning without a daemon.\n\n\
+        Exit codes: 0 success, 1 threat found (with --fail-on-threat) or failed job, \
+        2 client/usage error, 3 cancelled."
 )]
 struct Cli {
+    /// Address of the running litricd daemon (default 127.0.0.1:8787).
+    #[arg(long, global = true, value_name = "HOST:PORT")]
+    addr: Option<String>,
+    /// Path to the daemon API token file (default ./litric-data/api.token).
+    #[arg(long, global = true, value_name = "PATH")]
+    token_file: Option<PathBuf>,
+    /// Bypass the daemon and use the embedded engine (standalone mode).
+    #[arg(long, global = true)]
+    local: bool,
     #[command(subcommand)]
     command: Command,
 }
 
 #[derive(Subcommand)]
 enum Command {
-    /// Scan a file or directory tree.
-    Scan {
-        path: PathBuf,
-        /// Print machine-readable JSON instead of text.
+    /// Show daemon status, including whether real-time protection is actually on.
+    Status {
         #[arg(long)]
         json: bool,
-        /// Directory holding .lrs rules.
-        #[arg(long, default_value = "rules")]
-        rules: String,
-        /// Directory holding a signed threat database.
+    },
+    /// Scan a file or directory.
+    Scan {
+        path: PathBuf,
+        /// Scan profile: quick, full, deep or custom.
+        #[arg(long, default_value = "quick")]
+        profile: String,
+        /// Print the raw job JSON.
         #[arg(long)]
-        db: Option<PathBuf>,
-        /// Wall-clock budget in seconds.
+        json: bool,
+        /// Queue the scan and return immediately.
         #[arg(long)]
-        timeout: Option<u64>,
-        /// Maximum bytes read per file.
-        #[arg(long, default_value_t = 128 * 1024 * 1024)]
-        max_file_bytes: u64,
-        /// Cache results for unchanged files in this directory.
-        #[arg(long)]
-        cache: Option<PathBuf>,
-        /// Exit non-zero when anything is malicious or suspicious.
+        no_wait: bool,
+        /// Exit with code 1 when anything malicious or suspicious is found.
         #[arg(long)]
         fail_on_threat: bool,
+        /// Maximum seconds to wait for completion (default 3600).
+        #[arg(long)]
+        timeout: Option<u64>,
+        /// Rules directory (used only with --local).
+        #[arg(long, default_value = "rules")]
+        rules: PathBuf,
+        /// Threat database directory (used only with --local).
+        #[arg(long)]
+        db: Option<PathBuf>,
     },
-    /// Analyse one file and print the full evidence report.
+    /// Analyse one file and show the evidence behind the verdict.
     Analyze {
         file: PathBuf,
         #[arg(long)]
         json: bool,
         #[arg(long, default_value = "rules")]
-        rules: String,
+        rules: PathBuf,
         #[arg(long)]
         db: Option<PathBuf>,
     },
-    /// Parse and validate rule files.
+    /// Quarantine operations.
+    Quarantine {
+        #[command(subcommand)]
+        cmd: QuarantineCmd,
+        /// Vault directory (used only with --local).
+        #[arg(long)]
+        dir: Option<PathBuf>,
+        /// Vault key file (used only with --local).
+        #[arg(long)]
+        key: Option<PathBuf>,
+    },
+    /// Rule authoring tools (in-process).
     Rules {
         #[command(subcommand)]
         cmd: RulesCmd,
     },
-    /// Threat database operations.
+    /// Threat database tools (in-process).
     Db {
         #[command(subcommand)]
         cmd: DbCmd,
     },
-    /// Quarantine vault operations.
-    Quarantine {
-        #[command(subcommand)]
-        cmd: QuarantineCmd,
-    },
-    /// Measure scan throughput on a directory.
+    /// Measure scan throughput (in-process).
     Bench {
         path: PathBuf,
         #[arg(long, default_value_t = 3)]
         runs: usize,
         #[arg(long, default_value = "rules")]
-        rules: String,
+        rules: PathBuf,
+    },
+}
+
+#[derive(Subcommand)]
+enum QuarantineCmd {
+    /// List quarantined objects.
+    List,
+    /// Quarantine a file (moves it into the encrypted vault).
+    Add {
+        file: PathBuf,
+        #[arg(long, default_value = "User.Request")]
+        threat: String,
+    },
+    /// Restore a quarantined object by id.
+    Restore {
+        id: String,
+        #[arg(long)]
+        dest: Option<PathBuf>,
+    },
+    /// Verify every entry decrypts and matches its recorded hash.
+    Verify,
+    /// Permanently delete an entry (irreversible).
+    Purge {
+        id: String,
+        /// Required acknowledgement.
+        #[arg(long)]
+        confirm: bool,
     },
 }
 
@@ -106,16 +170,12 @@ enum RulesCmd {
 enum DbCmd {
     /// Build and sign a threat database from rules (and an optional hash list).
     Build {
-        /// Directory holding .lrs rules.
         #[arg(long, default_value = "rules")]
         rules: PathBuf,
-        /// Output directory.
         #[arg(long)]
         out: PathBuf,
-        /// Database version (must increase for updates to be accepted).
         #[arg(long, default_value_t = 1)]
         version: u64,
-        /// Optional JSON array of {sha256,name,kind} hash entries.
         #[arg(long)]
         hashes: Option<PathBuf>,
     },
@@ -126,132 +186,107 @@ enum DbCmd {
     },
 }
 
-#[derive(Subcommand)]
-enum QuarantineCmd {
-    /// Quarantine a file: encrypt, verify, then remove the original.
-    Add {
-        file: PathBuf,
-        #[arg(long)]
-        dir: PathBuf,
-        #[arg(long)]
-        key: PathBuf,
-        #[arg(long, default_value = "User.Request")]
-        threat: String,
-    },
-    /// List quarantined objects.
-    List {
-        #[arg(long)]
-        dir: PathBuf,
-        #[arg(long)]
-        key: PathBuf,
-    },
-    /// Restore one object by id.
-    Restore {
-        id: String,
-        #[arg(long)]
-        dir: PathBuf,
-        #[arg(long)]
-        key: PathBuf,
-        /// Restore here instead of the original path.
-        #[arg(long)]
-        dest: Option<PathBuf>,
-    },
-    /// Verify every entry decrypts and matches its recorded hash.
-    Verify {
-        #[arg(long)]
-        dir: PathBuf,
-        #[arg(long)]
-        key: PathBuf,
-    },
-}
-
 fn main() -> ExitCode {
     let cli = Cli::parse();
     match run(cli) {
         Ok(code) => code,
         Err(e) => {
-            eprintln!("litric: error: {e}");
+            eprintln!("litric: {e}");
             ExitCode::from(2)
         }
     }
 }
 
 fn run(cli: Cli) -> Result<ExitCode, Box<dyn std::error::Error>> {
-    match cli.command {
-        Command::Scan {
-            path,
-            json,
-            rules,
-            db,
-            timeout,
-            max_file_bytes,
-            cache,
-            fail_on_threat,
-        } => {
-            let engine = build_engine(Path::new(&rules), db.as_deref())?;
-            let limits = ScanLimits {
-                max_file_bytes,
-                deadline: timeout.map(std::time::Duration::from_secs),
-                ..Default::default()
-            };
-            let mut cache_store = cache.as_ref().map(|_| ScanCache::new());
-            let summary = {
-                let mut scanner = Scanner::new(&engine, limits);
-                if let Some(c) = cache_store.as_mut() {
-                    scanner = scanner.with_cache(c);
-                }
-                scanner.scan_path(&path)
-            };
+    let Cli {
+        addr,
+        token_file,
+        local,
+        command,
+    } = cli;
 
+    match command {
+        Command::Status { json } => {
+            let c = Client::discover(addr.as_deref(), token_file.as_deref())?;
+            let v = c.status()?;
             if json {
-                let detections: Vec<_> = summary
-                    .detections
-                    .iter()
-                    .map(|d| {
-                        serde_json::json!({
-                            "path": d.path.display().to_string(),
-                            "verdict": d.verdict.as_str(),
-                            "score": d.score,
-                            "threat": d.threat_name,
-                            "sha256": d.sha256,
-                            "truncated": d.truncated,
-                        })
-                    })
-                    .collect();
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(&serde_json::json!({
-                        "engine": litric_core::ENGINE_NAME,
-                        "engine_version": litric_core::ENGINE_VERSION,
-                        "rules_loaded": engine.rules().len(),
-                        "db_version": engine.db().version(),
-                        "db_trust": format!("{:?}", engine.db().trust),
-                        "files_scanned": summary.files_scanned,
-                        "clean": summary.clean,
-                        "unknown": summary.unknown,
-                        "suspicious": summary.suspicious,
-                        "malicious": summary.malicious,
-                        "unreadable": summary.unreadable,
-                        "skipped_too_large": summary.skipped_too_large,
-                        "skipped_budget": summary.skipped_budget,
-                        "truncated": summary.truncated,
-                        "bytes_scanned": summary.bytes_scanned,
-                        "duration_ms": summary.duration.as_millis(),
-                        "files_per_second": summary.files_per_second(),
-                        "detections": detections,
-                        "errors": summary.errors.iter().map(|(p, e)| serde_json::json!({
-                            "path": p.display().to_string(), "error": e
-                        })).collect::<Vec<_>>(),
-                    }))?
-                );
+                println!("{}", serde_json::to_string_pretty(&v)?);
             } else {
-                print_summary(&summary, &engine);
-            }
-
-            if fail_on_threat && (summary.malicious > 0 || summary.suspicious > 0) {
-                return Ok(ExitCode::from(1));
+                print!("{}", client::render_status(&v));
+                println!("daemon       : {}", c.addr());
             }
             Ok(ExitCode::SUCCESS)
+        }
+
+        Command::Scan {
+            path,
+            profile,
+            json,
+            no_wait,
+            fail_on_threat,
+            timeout,
+            rules,
+            db,
+        } => {
+            if local {
+                return local_scan(&rules, db.as_deref(), &path, json, fail_on_threat);
+            }
+            let c = Client::discover(addr.as_deref(), token_file.as_deref())?;
+            let target = canonical(&path)?;
+            let started = c.start_scan(&target.display().to_string(), &profile)?;
+            let id = started["job_id"]
+                .as_str()
+                .ok_or("daemon accepted the scan but returned no job id")?
+                .to_string();
+            println!("scan queued  : {id}  ({} / {profile})", target.display());
+            if no_wait {
+                println!("not waiting  : poll with `litric scan` insight via the API, or drop --no-wait");
+                return Ok(ExitCode::SUCCESS);
+            }
+
+            let deadline = Instant::now() + Duration::from_secs(timeout.unwrap_or(3600));
+            let mut last_reported: u64 = 0;
+            loop {
+                let job = c.scan_job(&id)?;
+                let state = job["state"].as_str().unwrap_or("unknown");
+                let files = job["files_scanned"].as_u64().unwrap_or(0);
+                if files != last_reported {
+                    println!("  … {files} file(s) inspected");
+                    last_reported = files;
+                }
+                match state {
+                    "completed" | "cancelled" | "failed" => {
+                        if json {
+                            println!("{}", serde_json::to_string_pretty(&job)?);
+                        } else {
+                            print!("{}", client::render_job(&job));
+                        }
+                        return Ok(match state {
+                            "cancelled" => ExitCode::from(3),
+                            "failed" => ExitCode::from(1),
+                            _ => {
+                                let hits = job["malicious"].as_u64().unwrap_or(0)
+                                    + job["suspicious"].as_u64().unwrap_or(0);
+                                if fail_on_threat && hits > 0 {
+                                    ExitCode::from(1)
+                                } else {
+                                    ExitCode::SUCCESS
+                                }
+                            }
+                        });
+                    }
+                    _ => {}
+                }
+                if Instant::now() >= deadline {
+                    let _ = c.cancel_scan(&id);
+                    eprintln!(
+                        "litric: scan {id} did not finish within the wait limit; cancellation requested.\n\
+                         The scan may still be running in the daemon — check `litric status`."
+                    );
+                    return Ok(ExitCode::from(3));
+                }
+                std::thread::sleep(Duration::from_millis(150));
+            }
         }
 
         Command::Analyze {
@@ -260,25 +295,90 @@ fn run(cli: Cli) -> Result<ExitCode, Box<dyn std::error::Error>> {
             rules,
             db,
         } => {
-            let engine = build_engine(Path::new(&rules), db.as_deref())?;
-            let scanner = Scanner::new(&engine, ScanLimits::default());
-            let (report, truncated) = scanner.analyze_file(&file)?;
-            if json {
-                println!("{}", report_json(&report, truncated));
-            } else {
-                print_report(&report, truncated);
+            if local {
+                return local_analyze(&rules, db.as_deref(), &file);
             }
-            Ok(if report.is_threat() {
+            let c = Client::discover(addr.as_deref(), token_file.as_deref())?;
+            let target = canonical(&file)?;
+            let v = c.analyze(&target.display().to_string())?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&v)?);
+            } else {
+                print!("{}", client::render_analysis(&v));
+            }
+            let verdict = v["verdict"].as_str().unwrap_or("unknown");
+            Ok(if matches!(verdict, "malicious" | "suspicious") {
                 ExitCode::from(1)
             } else {
                 ExitCode::SUCCESS
             })
         }
 
-        Command::Rules {
-            cmd: RulesCmd::Lint { dir },
-        } => lint_rules(&dir),
+        Command::Quarantine { cmd, dir, key } => {
+            if local {
+                return local_quarantine(cmd, dir, key);
+            }
+            let c = Client::discover(addr.as_deref(), token_file.as_deref())?;
+            match cmd {
+                QuarantineCmd::List => {
+                    let v = c.quarantine_list()?;
+                    print!("{}", client::render_quarantine(&v));
+                    Ok(ExitCode::SUCCESS)
+                }
+                QuarantineCmd::Add { file, threat } => {
+                    let target = canonical(&file)?;
+                    let v = c.quarantine_add(&target.display().to_string(), &threat)?;
+                    println!("quarantined {} as {}", target.display(), v["id"].as_str().unwrap_or("?"));
+                    println!("sha256      : {}", v["sha256"].as_str().unwrap_or("?"));
+                    println!(
+                        "original removed: {}",
+                        v["original_removed"].as_bool().unwrap_or(false)
+                    );
+                    Ok(ExitCode::SUCCESS)
+                }
+                QuarantineCmd::Restore { id, dest } => {
+                    let v = c.quarantine_restore(&id, dest.as_deref())?;
+                    println!("restored to {}", v["restored_to"].as_str().unwrap_or("?"));
+                    Ok(ExitCode::SUCCESS)
+                }
+                QuarantineCmd::Verify => {
+                    let v = c.quarantine_verify()?;
+                    let results = v["results"].as_array().cloned().unwrap_or_default();
+                    let failed = results
+                        .iter()
+                        .filter(|r| r["ok"].as_bool() != Some(true))
+                        .count();
+                    for r in &results {
+                        println!(
+                            "{}  {}  {}",
+                            r["id"].as_str().unwrap_or("?"),
+                            if r["ok"].as_bool() == Some(true) { "ok  " } else { "FAIL" },
+                            r["detail"].as_str().unwrap_or("")
+                        );
+                    }
+                    println!("{} entry/entries, {failed} failed", results.len());
+                    Ok(if failed > 0 {
+                        ExitCode::from(1)
+                    } else {
+                        ExitCode::SUCCESS
+                    })
+                }
+                QuarantineCmd::Purge { id, confirm } => {
+                    if !confirm {
+                        return Err(
+                            "refusing to purge without --confirm: this permanently deletes the \
+                             quarantined file"
+                                .into(),
+                        );
+                    }
+                    c.quarantine_purge(&id)?;
+                    println!("purged {id}");
+                    Ok(ExitCode::SUCCESS)
+                }
+            }
+        }
 
+        Command::Rules { cmd: RulesCmd::Lint { dir } } => lint_rules(&dir),
         Command::Db {
             cmd: DbCmd::Build {
                 rules,
@@ -287,247 +387,234 @@ fn run(cli: Cli) -> Result<ExitCode, Box<dyn std::error::Error>> {
                 hashes,
             },
         } => build_db(&rules, &out, version, hashes.as_deref()),
-
-        Command::Db {
-            cmd: DbCmd::Verify { dir },
-        } => verify_db(&dir),
-
-        Command::Quarantine { cmd } => quarantine_cmd(cmd),
-
-        Command::Bench { path, runs, rules } => bench(&path, runs, Path::new(&rules)),
+        Command::Db { cmd: DbCmd::Verify { dir } } => verify_db(&dir),
+        Command::Bench { path, runs, rules } => bench(&path, runs, &rules),
     }
 }
 
-fn build_engine(rules_dir: &Path, db_dir: Option<&Path>) -> Result<Engine, Box<dyn std::error::Error>> {
-    let mut sources = Vec::new();
-    if rules_dir.is_dir() {
-        for entry in std::fs::read_dir(rules_dir)? {
-            let path = entry?.path();
-            if path.extension().and_then(|e| e.to_str()) == Some("lrs") {
-                let text = std::fs::read_to_string(&path)?;
-                sources.push((path.display().to_string(), text));
-            }
-        }
-    }
-    // Rules shipped inside a signed database are added too.
-    let db = match db_dir {
-        Some(dir) => {
-            let db = ThreatDb::open_dir(
-                dir,
-                // No production keys are pinned in this build, so a dev-signed
-                // database is reported as DevelopmentOnly rather than trusted.
-                &[],
-                true,
-                litric_core::ENGINE_VERSION,
-            )?;
-            if db.trust == DbTrust::DevelopmentOnly {
-                eprintln!(
-                    "litric: warning: threat database `{}` is signed with the DEVELOPMENT key; \
-                     it must not be treated as production content",
-                    dir.display()
-                );
-            }
-            db
-        }
-        None => ThreatDb::empty(),
+fn canonical(path: &Path) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    std::fs::canonicalize(path).map_err(|e| {
+        format!(
+            "cannot access `{}`: {e}\nCheck the path, or run `litric status` to confirm the daemon is up.",
+            path.display()
+        )
+        .into()
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Explicit standalone mode
+// ---------------------------------------------------------------------------
+
+fn local_scan(
+    rules: &Path,
+    db: Option<&Path>,
+    path: &Path,
+    json: bool,
+    fail_on_threat: bool,
+) -> Result<ExitCode, Box<dyn std::error::Error>> {
+    eprintln!("litric: standalone mode (--local): no daemon involved, results are not shared with the service");
+    let engine = build_engine(rules, db)?;
+    let limits = ScanLimits {
+        max_file_bytes: 128 * 1024 * 1024,
+        ..Default::default()
     };
-    for (name, text) in db.payload.rules.iter().map(|r| (r.name.clone(), r.text.clone())) {
-        sources.push((format!("db:{name}"), text));
+    let mut scanner = Scanner::new(&engine, limits);
+    let summary = scanner.scan_path(path);
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "mode": "local",
+                "files_scanned": summary.files_scanned,
+                "clean": summary.clean,
+                "unknown": summary.unknown,
+                "suspicious": summary.suspicious,
+                "malicious": summary.malicious,
+                "unreadable": summary.unreadable,
+                "skipped": summary.skipped,
+                "duration_ms": summary.duration.as_millis(),
+                "detections": summary.detections.iter().map(|d| serde_json::json!({
+                    "path": d.path.display().to_string(),
+                    "verdict": d.verdict.as_str(),
+                    "score": d.score,
+                    "threat": d.threat_name,
+                })).collect::<Vec<_>>(),
+            }))?
+        );
+    } else {
+        print_local_summary(&summary);
     }
-
-    let mut rules = Vec::new();
-    for (source, text) in &sources {
-        match parse_rule_file(text, source) {
-            Ok(mut r) => rules.append(&mut r),
-            Err(e) => eprintln!("litric: rule error in {source}: {e}"),
-        }
-    }
-    let ruleset = RuleSet::compile(rules)?;
-    Ok(Engine::new(ruleset, db, EngineConfig::default()))
+    Ok(
+        if fail_on_threat && (summary.malicious > 0 || summary.suspicious > 0) {
+            ExitCode::from(1)
+        } else {
+            ExitCode::SUCCESS
+        },
+    )
 }
 
-fn print_summary(summary: &litric_core::scan::ScanSummary, engine: &Engine) {
-    println!("Litric Defender {} ({})", litric_core::ENGINE_VERSION, litric_core::ENGINE_NAME);
+fn print_local_summary(s: &ScanSummary) {
+    println!("files scanned : {}", s.files_scanned);
     println!(
-        "rules: {}   threat db: v{} ({:?})",
-        engine.rules().len(),
-        engine.db().version(),
-        engine.db().trust
+        "  clean {}  unknown {}  suspicious {}  malicious {}",
+        s.clean, s.unknown, s.suspicious, s.malicious
     );
-    println!("---------------------------------------------------------------");
-    println!("files scanned : {}", summary.files_scanned);
-    println!("  clean       : {}", summary.clean);
-    println!("  unknown     : {}", summary.unknown);
-    println!("  suspicious  : {}", summary.suspicious);
-    println!("  malicious   : {}", summary.malicious);
     println!(
-        "skipped       : {} (too large {}, budget {}, links {}, duplicates {})",
-        summary.skipped,
-        summary.skipped_too_large,
-        summary.skipped_budget,
-        summary.skipped_links,
-        summary.skipped_duplicates
+        "skipped {}  unreadable {}  truncated {}",
+        s.skipped, s.unreadable, s.truncated
     );
-    println!("unreadable    : {}", summary.unreadable);
-    println!("truncated     : {}", summary.truncated);
-    println!(
-        "throughput    : {:.0} files/s, {:.1} MB/s, {:?}",
-        summary.files_per_second(),
-        summary.mb_per_second(),
-        summary.duration
-    );
-    if summary.cache_hits > 0 {
-        println!("cache hits    : {}", summary.cache_hits);
-    }
-    if !summary.detections.is_empty() {
-        println!("---------------------------------------------------------------");
-        for d in &summary.detections {
-            println!(
-                "{:>10}  {:<10}  {}",
-                d.verdict.as_str(),
-                d.threat_name.as_deref().unwrap_or("-"),
-                d.path.display()
-            );
-        }
-    }
-    if !summary.errors.is_empty() {
-        println!("---------------------------------------------------------------");
-        for (p, e) in &summary.errors {
-            println!("error: {}: {e}", p.display());
-        }
-    }
-    if summary.unknown > 0 {
+    println!("duration      : {:?}", s.duration);
+    for d in &s.detections {
         println!(
-            "note: {} file(s) are UNKNOWN, not clean. Litric only reports `clean` for \
-             positively trusted content.",
-            summary.unknown
+            "  [{:>10}] {}  ({})",
+            d.verdict.as_str().to_uppercase(),
+            d.path.display(),
+            d.threat_name.as_deref().unwrap_or("unclassified")
         );
     }
+    if s.unknown > 0 {
+        println!("note: {} file(s) are UNKNOWN, not clean", s.unknown);
+    }
 }
 
-fn print_report(r: &FileReport, truncated: bool) {
+fn local_analyze(
+    rules: &Path,
+    db: Option<&Path>,
+    file: &Path,
+) -> Result<ExitCode, Box<dyn std::error::Error>> {
+    eprintln!("litric: standalone mode (--local): no daemon involved");
+    let engine = build_engine(rules, db)?;
+    let scanner = Scanner::new(&engine, ScanLimits::default());
+    let (r, truncated) = scanner.analyze_file(file)?;
     println!("file        : {}", r.name);
     println!("sha256      : {}", r.sha256);
     println!("size        : {} bytes", r.size);
-    println!("content     : {} (extension: .{})", r.format, r.ext);
-    println!("verdict     : {} (score {}/100, confidence {:.2})",
-        r.verdict.as_str().to_uppercase(), r.score, r.confidence);
+    println!("content     : {} (extension .{})", r.format, r.ext);
+    println!(
+        "verdict     : {} (score {}/100, confidence {:.2})",
+        r.verdict.as_str().to_uppercase(),
+        r.score,
+        r.confidence
+    );
     if let Some(t) = &r.threat_name {
         println!("threat      : {t}");
     }
-    if let Some(f) = &r.family {
-        println!("family      : {f}");
+    for s in &r.signals {
+        println!("  [{:>3}] {}: {}", s.weight, s.title, s.detail);
     }
-    if let Some(pe) = &r.pe {
-        println!(
-            "pe          : {} {}{}{} | {} sections, {} imports, entropy {:.2}",
-            pe.machine,
-            if pe.is_dll { "DLL" } else { "EXE" },
-            if pe.is_driver { " (kernel driver)" } else { "" },
-            if pe.is_dotnet { " (.NET)" } else { "" },
-            pe.sections,
-            pe.imports,
-            pe.code_entropy
-        );
-        println!(
-            "signature   : {}",
-            if pe.signed {
-                format!("present ({} subject(s))", pe.signers.len())
-            } else {
-                "absent".to_string()
-            }
-        );
-        if !pe.signers.is_empty() {
-            println!("signers     : {}", pe.signers.join(", "));
-        }
-        println!(
-            "hardening   : ASLR {} | DEP {} | CFG {} | checksum {}",
-            yes_no(pe.aslr),
-            yes_no(pe.dep),
-            yes_no(pe.cfg),
-            if pe.checksum_valid { "ok" } else { "invalid/unset" }
-        );
-        if !pe.packer_hints.is_empty() {
-            println!("packer      : {}", pe.packer_hints.join(", "));
-        }
-    }
-    if !r.mitre.is_empty() {
-        println!("mitre       : {}", r.mitre.join(", "));
-    }
-    if !r.signals.is_empty() {
-        println!("---------------------------------------------------------------");
-        println!("evidence:");
-        for s in &r.signals {
-            println!(
-                "  [{:>3}] {} {}",
-                s.weight,
-                s.title,
-                if s.mitre.is_empty() {
-                    String::new()
-                } else {
-                    format!("({})", s.mitre.join(","))
-                }
-            );
-            println!("        {}", s.detail);
-        }
-    }
-    if !r.rules.is_empty() {
-        println!("matched rules:");
-        for m in &r.rules {
-            println!("  {} [{}] {}", m.name, m.severity, m.description);
-        }
-    }
-    for n in &r.notes {
-        println!("note        : {n}");
+    for m in &r.rules {
+        println!("matched rule: {} [{}]", m.name, m.severity);
     }
     if truncated {
-        println!("note        : file was sampled, not fully read (size cap)");
+        println!("note        : file was sampled, not fully read");
+    }
+    Ok(if r.is_threat() {
+        ExitCode::from(1)
+    } else {
+        ExitCode::SUCCESS
+    })
+}
+
+fn local_quarantine(
+    cmd: QuarantineCmd,
+    dir: Option<PathBuf>,
+    key: Option<PathBuf>,
+) -> Result<ExitCode, Box<dyn std::error::Error>> {
+    let dir = dir.unwrap_or_else(|| PathBuf::from("litric-data/quarantine"));
+    let key = key.unwrap_or_else(|| PathBuf::from("litric-data/vault.key"));
+    let vault = QuarantineVault::open(&dir, &key)?;
+    match cmd {
+        QuarantineCmd::List => {
+            let entries = vault.list();
+            if entries.is_empty() {
+                println!("quarantine is empty");
+            }
+            for e in entries {
+                println!(
+                    "{}  {:<28} {}  ({} bytes)",
+                    e.id, e.threat_name, e.original_path, e.size
+                );
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+        QuarantineCmd::Add { file, threat } => {
+            let meta = vault.quarantine_file(&file, &threat, None, 100, false)?;
+            println!("quarantined as {}", meta.id);
+            Ok(ExitCode::SUCCESS)
+        }
+        QuarantineCmd::Restore { id, dest } => {
+            let path = vault.restore(&id, dest.as_deref())?;
+            println!("restored to {}", path.display());
+            Ok(ExitCode::SUCCESS)
+        }
+        QuarantineCmd::Verify => {
+            let report = vault.verify_all();
+            let bad = report.iter().filter(|(_, ok, _)| !ok).count();
+            for (id, ok, msg) in &report {
+                println!("{} {} {}", id, if *ok { "ok  " } else { "FAIL" }, msg);
+            }
+            println!("{} entry/entries, {bad} failed", report.len());
+            Ok(if bad > 0 {
+                ExitCode::from(1)
+            } else {
+                ExitCode::SUCCESS
+            })
+        }
+        QuarantineCmd::Purge { id, confirm } => {
+            if !confirm {
+                return Err("refusing to purge without --confirm".into());
+            }
+            vault.purge(&id)?;
+            println!("purged {id}");
+            Ok(ExitCode::SUCCESS)
+        }
     }
 }
 
-fn report_json(r: &FileReport, truncated: bool) -> String {
-    serde_json::json!({
-        "name": r.name,
-        "sha256": r.sha256.to_hex(),
-        "size": r.size,
-        "format": r.format,
-        "extension": r.ext,
-        "verdict": r.verdict.as_str(),
-        "score": r.score,
-        "confidence": r.confidence,
-        "threat": r.threat_name,
-        "family": r.family,
-        "mitre": r.mitre,
-        "signals": r.signals.iter().map(|s| serde_json::json!({
-            "id": s.id,
-            "weight": s.weight,
-            "confidence": s.confidence.as_str(),
-            "title": s.title,
-            "detail": s.detail,
-            "mitre": s.mitre,
-        })).collect::<Vec<_>>(),
-        "rules": r.rules.iter().map(|m| serde_json::json!({
-            "name": m.name,
-            "severity": m.severity.as_str(),
-            "description": m.description,
-            "matched_strings": m.matched_strings,
-        })).collect::<Vec<_>>(),
-        "notes": r.notes,
-        "truncated": truncated,
-        "engine": r.engine,
-        "engine_version": r.engine_version,
-    })
-    .to_string()
-}
+// ---------------------------------------------------------------------------
+// Engine tooling (in-process by design)
+// ---------------------------------------------------------------------------
 
-fn yes_no(b: bool) -> &'static str {
-    if b { "yes" } else { "no" }
+fn build_engine(
+    rules_dir: &Path,
+    db_dir: Option<&Path>,
+) -> Result<Engine, Box<dyn std::error::Error>> {
+    let db = match db_dir {
+        Some(dir) => ThreatDb::open_dir(dir, &[], true, litric_core::ENGINE_VERSION)?,
+        None => ThreatDb::empty(),
+    };
+    let mut rules: Vec<Rule> = Vec::new();
+    if rules_dir.is_dir() {
+        let mut entries: Vec<PathBuf> = std::fs::read_dir(rules_dir)?
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("lrs"))
+            .collect();
+        entries.sort();
+        for path in entries {
+            let text = std::fs::read_to_string(&path)?;
+            match parse_rule_file(&text, &path.display().to_string()) {
+                Ok(mut r) => rules.append(&mut r),
+                Err(e) => eprintln!("litric: rule error in {}: {e}", path.display()),
+            }
+        }
+    }
+    for r in &db.payload.rules {
+        if let Ok(mut parsed) = parse_rule_file(&r.text, &format!("db:{}", r.name)) {
+            rules.append(&mut parsed);
+        }
+    }
+    Ok(Engine::new(
+        RuleSet::compile(rules)?,
+        db,
+        EngineConfig::default(),
+    ))
 }
 
 fn lint_rules(dir: &Path) -> Result<ExitCode, Box<dyn std::error::Error>> {
     let mut total = 0usize;
     let mut failed = 0usize;
-    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut seen = std::collections::HashSet::new();
     let mut entries: Vec<PathBuf> = std::fs::read_dir(dir)?
         .filter_map(|e| e.ok().map(|e| e.path()))
         .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("lrs"))
@@ -551,9 +638,6 @@ fn lint_rules(dir: &Path) -> Result<ExitCode, Box<dyn std::error::Error>> {
                         eprintln!("{}: rule `{}` has no description", path.display(), r.name);
                         failed += 1;
                     }
-                    if r.strings.is_empty() && !matches!(r.condition, litric_core::rules::Cond::Literal(_)) {
-                        // only a literal condition can be stringless
-                    }
                 }
                 println!("{}: {} rule(s) ok", path.display(), rules.len());
             }
@@ -564,7 +648,11 @@ fn lint_rules(dir: &Path) -> Result<ExitCode, Box<dyn std::error::Error>> {
         }
     }
     println!("{total} rule(s) parsed, {failed} problem(s)");
-    Ok(if failed > 0 { ExitCode::from(1) } else { ExitCode::SUCCESS })
+    Ok(if failed > 0 {
+        ExitCode::from(1)
+    } else {
+        ExitCode::SUCCESS
+    })
 }
 
 fn build_db(
@@ -579,8 +667,6 @@ fn build_db(
             let path = entry?.path();
             if path.extension().and_then(|e| e.to_str()) == Some("lrs") {
                 let text = std::fs::read_to_string(&path)?;
-                // Validate before publishing: a database with a broken rule is
-                // worse than no update.
                 parse_rule_file(&text, &path.display().to_string())?;
                 rule_sources.push(RuleSource {
                     name: path
@@ -597,10 +683,8 @@ fn build_db(
     }
     let mut hash_entries: Vec<HashEntry> = Vec::new();
     if let Some(h) = hashes {
-        let raw = std::fs::read_to_string(h)?;
-        hash_entries = serde_json::from_str(&raw)?;
+        hash_entries = serde_json::from_str(&std::fs::read_to_string(h)?)?;
     }
-
     let payload = DbPayload {
         schema: DB_FORMAT_VERSION,
         db_version: version,
@@ -624,24 +708,19 @@ fn build_db(
         true,
         litric_core::ENGINE_VERSION,
         false,
+    )?;
+    println!(
+        "wrote threat database v{} to {} ({} rule file(s), {} hash entry/entries)",
+        db.version(),
+        out.display(),
+        db.payload.rules.len(),
+        db.payload.hashes.len()
     );
-    match db {
-        Ok(d) => {
-            println!(
-                "wrote threat database v{} to {} ({} rule file(s), {} hash entry/entries)",
-                d.version(),
-                out.display(),
-                d.payload.rules.len(),
-                d.payload.hashes.len()
-            );
-            println!(
-                "WARNING: signed with the development key. Production builds must use the \
-                 Litric production signing key."
-            );
-            Ok(ExitCode::SUCCESS)
-        }
-        Err(e) => Err(e.into()),
-    }
+    println!(
+        "WARNING: signed with the development key. Production builds must use the Litric \
+         production signing key."
+    );
+    Ok(ExitCode::SUCCESS)
 }
 
 fn verify_db(dir: &Path) -> Result<ExitCode, Box<dyn std::error::Error>> {
@@ -653,73 +732,17 @@ fn verify_db(dir: &Path) -> Result<ExitCode, Box<dyn std::error::Error>> {
             println!("min engine  : {}", db.payload.min_engine);
             println!("rules       : {}", db.payload.rules.len());
             println!("hash entries: {}", db.payload.hashes.len());
-            println!("revoked     : {} rule(s), {} hash(es)",
-                db.payload.revoked_rules.len(), db.payload.revoked_hashes.len());
-            if db.trust == DbTrust::DevelopmentOnly {
-                println!("warning     : development key — not production content");
-            }
+            println!(
+                "revoked     : {} rule(s), {} hash(es)",
+                db.payload.revoked_rules.len(),
+                db.payload.revoked_hashes.len()
+            );
+            println!("warning     : development key — not production content");
             Ok(ExitCode::SUCCESS)
         }
         Err(e) => {
             eprintln!("litric: database verification failed: {e}");
             Ok(ExitCode::from(1))
-        }
-    }
-}
-
-fn quarantine_cmd(cmd: QuarantineCmd) -> Result<ExitCode, Box<dyn std::error::Error>> {
-    match cmd {
-        QuarantineCmd::Add {
-            file,
-            dir,
-            key,
-            threat,
-        } => {
-            let v = QuarantineVault::open(&dir, &key)?;
-            let meta = v.quarantine_file(&file, &threat, None, 100, false)?;
-            println!("quarantined {} as {}", file.display(), meta.id);
-            println!("sha256      : {}", meta.sha256);
-            println!("original removed: {}", meta.original_removed);
-            Ok(ExitCode::SUCCESS)
-        }
-        QuarantineCmd::List { dir, key } => {
-            let v = QuarantineVault::open(&dir, &key)?;
-            let entries = v.list();
-            if entries.is_empty() {
-                println!("quarantine is empty");
-            }
-            for e in entries {
-                println!(
-                    "{}  {}  {:>10}  {}  ({})",
-                    e.id,
-                    e.threat_name,
-                    format_size(e.size),
-                    e.original_path,
-                    e.sha256
-                );
-            }
-            Ok(ExitCode::SUCCESS)
-        }
-        QuarantineCmd::Restore {
-            id,
-            dir,
-            key,
-            dest,
-        } => {
-            let v = QuarantineVault::open(&dir, &key)?;
-            let target = v.restore(&id, dest.as_deref())?;
-            println!("restored to {}", target.display());
-            Ok(ExitCode::SUCCESS)
-        }
-        QuarantineCmd::Verify { dir, key } => {
-            let v = QuarantineVault::open(&dir, &key)?;
-            let report = v.verify_all();
-            let bad = report.iter().filter(|(_, ok, _)| !ok).count();
-            for (id, ok, msg) in &report {
-                println!("{} {} {}", id, if *ok { "ok  " } else { "FAIL" }, msg);
-            }
-            println!("{} entry/entries, {bad} failed", report.len());
-            Ok(if bad > 0 { ExitCode::from(1) } else { ExitCode::SUCCESS })
         }
     }
 }
@@ -751,23 +774,6 @@ fn bench(path: &Path, runs: usize, rules_dir: &Path) -> Result<ExitCode, Box<dyn
         );
     }
     println!("best wall time: {best:.3}s");
+    let _ = Value::Null;
     Ok(ExitCode::SUCCESS)
 }
-
-fn format_size(bytes: u64) -> String {
-    const KB: u64 = 1024;
-    const MB: u64 = KB * 1024;
-    const GB: u64 = MB * 1024;
-    if bytes >= GB {
-        format!("{:.1} GB", bytes as f64 / GB as f64)
-    } else if bytes >= MB {
-        format!("{:.1} MB", bytes as f64 / MB as f64)
-    } else if bytes >= KB {
-        format!("{:.1} KB", bytes as f64 / KB as f64)
-    } else {
-        format!("{bytes} B")
-    }
-}
-
-#[allow(dead_code)]
-fn format_note() {}

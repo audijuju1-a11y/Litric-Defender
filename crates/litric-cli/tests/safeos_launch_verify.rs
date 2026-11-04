@@ -113,7 +113,7 @@ fn good_facts() -> Value {
     json!({
         "known": true,
         "windows_edition": "Windows 11 Pro",
-        "windows_build": 22631,
+        "windows_build": 26200,
         "virtualization_enabled": true,
         "hyperv_feature_present": true,
         "sandbox_feature_present": true,
@@ -167,7 +167,7 @@ fn every_readiness_blocker_is_named_and_reevaluated() {
         (
             json!({ "windows_build": 21999 }),
             "windows_build",
-            "older than the supported minimum 22000",
+            "not in the documented Windows 11 lifecycle table",
         ),
         (
             json!({ "virtualization_enabled": false }),

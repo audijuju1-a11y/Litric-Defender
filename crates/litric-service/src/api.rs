@@ -645,27 +645,39 @@ fn safeos_assess(state: &AppState, body: &[u8]) -> ApiResponse {
         None => HashTrust::Unknown,
     };
 
+    let signature_trust = state.signature_verifier.verify(&path);
+    let signature_chain_valid = signature_trust.is_valid();
     let facts = ApplicationFacts {
         verdict: report.verdict.as_str().to_string(),
         score: report.score,
         confidence: report.confidence,
+        // A valid chain is proof that a signature exists even when the parser's
+        // certificate summary is partial. Otherwise use the structural evidence.
         signature_present: report
             .pe
             .as_ref()
             .map(|p| !p.signers.is_empty())
-            .unwrap_or(false),
-        // Chain validation requires WinVerifyTrust and is not implemented here.
-        signature_chain_valid: false,
+            .unwrap_or(false)
+            || signature_chain_valid,
+        signature_chain_valid,
         hash_trust,
     };
     let assessment = assess(&facts);
     let decision = decide(assessment.level, &BackendSet::none());
+    let host_facts = state
+        .host_facts
+        .lock()
+        .ok()
+        .and_then(|f| f.clone())
+        .unwrap_or_else(HostFacts::unknown);
+    let readiness = Readiness::evaluate(&host_facts);
 
     ok(json!({
         "path": path.display().to_string(),
         "sha256": report.sha256.to_hex(),
         "verdict": report.verdict.as_str(),
         "score": report.score,
+        "signature_chain_valid": signature_chain_valid,
         "level": assessment.level.number(),
         "level_name": assessment.level.as_str(),
         "confidence": assessment.confidence,
@@ -675,7 +687,20 @@ fn safeos_assess(state: &AppState, body: &[u8]) -> ApiResponse {
         "reasons": decision.reasons,
         "remediation": decision.remediation,
         "isolation_available": false,
-        "system_readiness": { "production_ready": false, "sandbox_guest_runtime": "UNPROVEN" },
+        "system_readiness": {
+            "production_ready": false,
+            "sandbox_guest_runtime": "UNPROVEN",
+            "host_facts_known": host_facts.known,
+            "blockers": readiness
+                .blockers
+                .iter()
+                .map(|b| json!({
+                    "component": b.component,
+                    "reason": b.reason,
+                    "remediation": b.remediation,
+                }))
+                .collect::<Vec<_>>(),
+        },
         "note": "no isolation backend is present in this build; the decision is fail-closed",
     }))
 }
@@ -993,13 +1018,18 @@ pub fn job_cancelled(flag: &std::sync::atomic::AtomicBool) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{PlatformSignatureVerifier, SignatureTrust, SignatureVerifier};
     use litric_core::engine::EngineConfig;
     use litric_core::quarantine::QuarantineVault;
     use litric_core::rules::{parse_rule_file, RuleSet};
-    use litric_core::threatdb::ThreatDb;
+    use litric_core::threatdb::{
+        build_signed, dev_signing_key, DbPayload, HashEntry, ThreatDb, DB_FORMAT_VERSION,
+    };
     use std::fs;
+    use std::path::Path;
+    use std::sync::Arc;
 
-    fn test_state(tag: &str) -> (std::sync::Arc<AppState>, PathBuf) {
+    fn test_base(tag: &str) -> PathBuf {
         let base = std::env::temp_dir().join(format!(
             "litric-api-{tag}-{}-{}",
             std::process::id(),
@@ -1010,7 +1040,15 @@ mod tests {
         ));
         let _ = fs::remove_dir_all(&base);
         fs::create_dir_all(&base).unwrap();
+        base
+    }
 
+    fn test_state_with(
+        tag: &str,
+        db: ThreatDb,
+        verifier: Arc<dyn SignatureVerifier>,
+    ) -> (std::sync::Arc<AppState>, PathBuf) {
+        let base = test_base(tag);
         let rules = r#"
 rule Eicar.Test {
     meta:
@@ -1024,10 +1062,53 @@ rule Eicar.Test {
 }
 "#;
         let rs = RuleSet::compile(parse_rule_file(rules, "test").unwrap()).unwrap();
-        let engine = litric_core::engine::Engine::new(rs, ThreatDb::empty(), EngineConfig::default());
+        let engine = litric_core::engine::Engine::new(rs, db, EngineConfig::default());
         let vault = QuarantineVault::open(&base.join("quarantine"), &base.join("vault.key")).unwrap();
-        let state = AppState::new(engine, vault, &base.join("data"), "test-token".into()).unwrap();
+        let state = AppState::new_with_verifier(
+            engine,
+            vault,
+            &base.join("data"),
+            "test-token".into(),
+            verifier,
+        )
+        .unwrap();
         (state, base)
+    }
+
+    fn test_state(tag: &str) -> (std::sync::Arc<AppState>, PathBuf) {
+        test_state_with(
+            tag,
+            ThreatDb::empty(),
+            Arc::new(PlatformSignatureVerifier),
+        )
+    }
+
+    fn trusted_db(bytes: &[u8]) -> ThreatDb {
+        let payload = DbPayload {
+            schema: DB_FORMAT_VERSION,
+            db_version: 1,
+            min_engine: "0.0.0".into(),
+            created_unix: 0,
+            hashes: vec![HashEntry {
+                sha256: litric_core::hash::sha256_bytes(bytes).to_hex(),
+                name: "Fixture.Trusted".into(),
+                family: Some("Fixture".into()),
+                severity: Some("trusted".into()),
+                kind: EntryKind::Trusted,
+                source: Some("unit test".into()),
+                license: Some("CC0".into()),
+            }],
+            ..Default::default()
+        };
+        let (payload_bytes, manifest_bytes) = build_signed(&payload, &dev_signing_key()).unwrap();
+        ThreatDb::verify_loaded(
+            &payload_bytes,
+            &manifest_bytes,
+            &[],
+            true,
+            litric_core::ENGINE_VERSION,
+        )
+        .expect("test database")
     }
 
     #[test]
@@ -1108,6 +1189,141 @@ rule Eicar.Test {
         let r = dispatch(&state, "POST", &format!("/api/v1/quarantine/{id}/restore"), &rbody);
         assert_eq!(r.status, 200, "{}", r.to_json());
         assert_eq!(fs::read(&dest).unwrap(), b"malicious bytes");
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    struct DigestBoundVerifier {
+        trusted_sha256: String,
+    }
+
+    impl SignatureVerifier for DigestBoundVerifier {
+        fn verify(&self, path: &Path) -> SignatureTrust {
+            let ok = fs::read(path)
+                .map(|bytes| {
+                    litric_core::hash::sha256_bytes(&bytes).to_hex() == self.trusted_sha256
+                })
+                .unwrap_or(false);
+            if ok {
+                SignatureTrust::Valid
+            } else {
+                SignatureTrust::Invalid
+            }
+        }
+    }
+
+    #[test]
+    fn safeos_assess_trusts_an_allowlisted_chain_valid_entry() {
+        let trusted = b"trusted fixture bytes";
+        let digest = litric_core::hash::sha256_bytes(trusted).to_hex();
+        let (state, base) = test_state_with(
+            "trusted",
+            trusted_db(trusted),
+            Arc::new(DigestBoundVerifier {
+                trusted_sha256: digest,
+            }),
+        );
+        let sample = base.join("trusted.bin");
+        fs::write(&sample, trusted).unwrap();
+        let body = serde_json::to_vec(&json!({ "path": sample.display().to_string() })).unwrap();
+        let r = dispatch(&state, "POST", "/api/v1/safeos/assess", &body);
+        assert_eq!(r.status, 200, "{}", r.to_json());
+        assert_eq!(r.body["signature_chain_valid"], true, "{}", r.to_json());
+        assert_eq!(r.body["level_name"], "trusted", "{}", r.to_json());
+        assert_eq!(r.body["action"], "run_on_host", "{}", r.to_json());
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn safeos_assess_does_not_trust_tampered_or_unsigned_input() {
+        let trusted = b"trusted fixture bytes";
+        let digest = litric_core::hash::sha256_bytes(trusted).to_hex();
+        let (state, base) = test_state_with(
+            "tampered",
+            trusted_db(trusted),
+            Arc::new(DigestBoundVerifier {
+                trusted_sha256: digest,
+            }),
+        );
+        let sample = base.join("tampered.bin");
+        fs::write(&sample, b"tampered fixture bytes").unwrap();
+        let body = serde_json::to_vec(&json!({ "path": sample.display().to_string() })).unwrap();
+        let r = dispatch(&state, "POST", "/api/v1/safeos/assess", &body);
+        assert_eq!(r.status, 200, "{}", r.to_json());
+        assert_eq!(r.body["signature_chain_valid"], false, "{}", r.to_json());
+        assert_ne!(r.body["level_name"], "trusted", "{}", r.to_json());
+        let _ = fs::remove_dir_all(&base);
+
+        let (unsigned_state, unsigned_base) = test_state("unsigned");
+        let unsigned = unsigned_base.join("unsigned.bin");
+        fs::write(&unsigned, b"unsigned fixture bytes").unwrap();
+        let body = serde_json::to_vec(&json!({ "path": unsigned.display().to_string() })).unwrap();
+        let r = dispatch(
+            &unsigned_state,
+            "POST",
+            "/api/v1/safeos/assess",
+            &body,
+        );
+        assert_eq!(r.status, 200, "{}", r.to_json());
+        assert_eq!(r.body["signature_chain_valid"], false, "{}", r.to_json());
+        assert_ne!(r.body["level_name"], "trusted", "{}", r.to_json());
+        let _ = fs::remove_dir_all(&unsigned_base);
+
+        // Allowlisting alone must not grant trust when the platform verifier
+        // cannot validate a chain.
+        let (allowlisted_state, allowlisted_base) = test_state_with(
+            "allowlisted-unsigned",
+            trusted_db(trusted),
+            Arc::new(PlatformSignatureVerifier),
+        );
+        let allowlisted = allowlisted_base.join("allowlisted.bin");
+        fs::write(&allowlisted, trusted).unwrap();
+        let body = serde_json::to_vec(&json!({ "path": allowlisted.display().to_string() })).unwrap();
+        let r = dispatch(
+            &allowlisted_state,
+            "POST",
+            "/api/v1/safeos/assess",
+            &body,
+        );
+        assert_eq!(r.status, 200, "{}", r.to_json());
+        assert_eq!(r.body["signature_chain_valid"], false, "{}", r.to_json());
+        assert_ne!(r.body["level_name"], "trusted", "{}", r.to_json());
+        let _ = fs::remove_dir_all(&allowlisted_base);
+    }
+
+    #[test]
+    fn safeos_assess_surfaces_lifecycle_expired_build() {
+        let (state, base) = test_state("expired-build");
+        {
+            let mut slot = state.host_facts.lock().unwrap();
+            *slot = Some(HostFacts {
+                known: true,
+                windows_edition: "Windows 11 Pro".into(),
+                windows_build: 26_100,
+                virtualization_enabled: true,
+                hyperv_feature_present: true,
+                sandbox_feature_present: true,
+                total_ram_mb: 16 * 1024,
+                free_disk_mb: 100 * 1024,
+                existing_nat_networks: 0,
+                nat_query_ok: true,
+                wsl_switches: 1,
+                docker_switches: 1,
+            });
+        }
+        let sample = base.join("notes.txt");
+        fs::write(&sample, b"just notes\n").unwrap();
+        let body = serde_json::to_vec(&json!({ "path": sample.display().to_string() })).unwrap();
+        let r = dispatch(&state, "POST", "/api/v1/safeos/assess", &body);
+        assert_eq!(r.status, 200, "{}", r.to_json());
+        let blockers = r.body["system_readiness"]["blockers"]
+            .as_array()
+            .expect("blockers");
+        let build = blockers
+            .iter()
+            .find(|b| b["component"] == "windows_build")
+            .expect("windows_build blocker");
+        assert!(build["reason"].as_str().unwrap().contains("24H2"));
+        assert!(build["reason"].as_str().unwrap().contains("end of support"));
         let _ = fs::remove_dir_all(&base);
     }
 

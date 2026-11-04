@@ -94,7 +94,7 @@ fn write_fixture(path: &Path, nat_ok: bool) {
         r#"{{
   "known": true,
   "windows_edition": "Windows 11 Pro",
-  "windows_build": 22631,
+  "windows_build": 26200,
   "virtualization_enabled": true,
   "hyperv_feature_present": true,
   "sandbox_feature_present": true,
@@ -137,7 +137,7 @@ fn agent_report_updates_status_but_never_claims_a_launcher() {
     let status = get_json(&addr, "/api/v1/safeos/status");
     assert_eq!(status["host_facts_known"], true);
     assert_eq!(status["state"], "facts_reported");
-    assert_eq!(status["host_facts"]["windows_build"], 22631);
+    assert_eq!(status["host_facts"]["windows_build"], 26200);
     let backends = status["backends"].as_array().unwrap();
     let sandbox = backends
         .iter()
@@ -230,7 +230,7 @@ fn invalid_report_is_rejected_and_does_not_replace_good_facts() {
 
     let status = get_json(&addr, "/api/v1/safeos/status");
     assert_eq!(status["host_facts_known"], true);
-    assert_eq!(status["host_facts"]["windows_build"], 22631);
+    assert_eq!(status["host_facts"]["windows_build"], 26200);
 }
 
 #[test]

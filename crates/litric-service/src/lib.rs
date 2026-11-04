@@ -38,6 +38,111 @@ use litric_safeos::model::HostFacts;
 use crate::jobs::JobManager;
 use crate::store::Store;
 
+/// Result of asking the platform to validate an Authenticode chain.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SignatureTrust {
+    /// WinVerifyTrust accepted the chain to a trusted root.
+    Valid,
+    /// A signature is present but the chain is invalid, untrusted, or tampered.
+    Invalid,
+    /// No platform verifier is available on this build (non-Windows).
+    Unverified,
+}
+
+impl SignatureTrust {
+    pub fn is_valid(self) -> bool {
+        self == SignatureTrust::Valid
+    }
+}
+
+/// The platform trust boundary for Authenticode chain validation.
+///
+/// `safeos_assess` consumes this trait rather than inventing a trust result. The
+/// production implementation calls WinVerifyTrust on Windows; tests inject a
+/// deterministic verifier so the allowlist decision path is reachable on Linux.
+pub trait SignatureVerifier: Send + Sync {
+    fn verify(&self, path: &Path) -> SignatureTrust;
+}
+
+/// Production verifier: WinVerifyTrust on Windows, unavailable elsewhere.
+pub struct PlatformSignatureVerifier;
+
+impl SignatureVerifier for PlatformSignatureVerifier {
+    fn verify(&self, path: &Path) -> SignatureTrust {
+        platform_signature_trust(path)
+    }
+}
+
+#[cfg(not(windows))]
+fn platform_signature_trust(_path: &Path) -> SignatureTrust {
+    // There is no Authenticode trust provider in the portable build. Returning
+    // Unverified is deliberately not the same as "invalid signature"; it keeps
+    // the API fail-closed without claiming a chain was checked.
+    SignatureTrust::Unverified
+}
+
+#[cfg(windows)]
+fn platform_signature_trust(path: &Path) -> SignatureTrust {
+    use std::ffi::c_void;
+    use std::os::windows::ffi::OsStrExt;
+    use std::ptr;
+    use windows_sys::Win32::Security::WinTrust::{
+        WinVerifyTrust, WINTRUST_ACTION_GENERIC_VERIFY_V2, WINTRUST_DATA, WINTRUST_DATA_0,
+        WINTRUST_FILE_INFO, WTD_CACHE_ONLY_URL_RETRIEVAL, WTD_CHOICE_FILE, WTD_REVOKE_NONE,
+        WTD_STATEACTION_CLOSE, WTD_STATEACTION_VERIFY, WTD_UICONTEXT_EXECUTE, WTD_UI_NONE,
+    };
+
+    let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+    let mut file_info = WINTRUST_FILE_INFO {
+        cbStruct: std::mem::size_of::<WINTRUST_FILE_INFO>() as u32,
+        pcwszFilePath: wide.as_ptr(),
+        hFile: ptr::null_mut(),
+        pgKnownSubject: ptr::null_mut(),
+    };
+    let mut data = WINTRUST_DATA {
+        cbStruct: std::mem::size_of::<WINTRUST_DATA>() as u32,
+        pPolicyCallbackData: ptr::null_mut(),
+        pSIPClientData: ptr::null_mut(),
+        dwUIChoice: WTD_UI_NONE,
+        fdwRevocationChecks: WTD_REVOKE_NONE,
+        dwUnionChoice: WTD_CHOICE_FILE,
+        Anonymous: WINTRUST_DATA_0 {
+            pFile: &mut file_info,
+        },
+        dwStateAction: WTD_STATEACTION_VERIFY,
+        hWVTStateData: ptr::null_mut(),
+        pwszURLReference: ptr::null_mut(),
+        dwProvFlags: WTD_CACHE_ONLY_URL_RETRIEVAL,
+        dwUIContext: WTD_UICONTEXT_EXECUTE,
+        pSignatureSettings: ptr::null_mut(),
+    };
+    let mut action = WINTRUST_ACTION_GENERIC_VERIFY_V2;
+
+    // WinVerifyTrust returns 0 only when the policy provider accepts the chain.
+    let status = unsafe {
+        WinVerifyTrust(
+            ptr::null_mut(),
+            &mut action,
+            &mut data as *mut _ as *mut c_void,
+        )
+    };
+    // Always release the provider state allocated by the VERIFY call.
+    data.dwStateAction = WTD_STATEACTION_CLOSE;
+    unsafe {
+        WinVerifyTrust(
+            ptr::null_mut(),
+            &mut action,
+            &mut data as *mut _ as *mut c_void,
+        );
+    }
+
+    if status == 0 {
+        SignatureTrust::Valid
+    } else {
+        SignatureTrust::Invalid
+    }
+}
+
 /// Shared, thread-safe service state.
 pub struct AppState {
     pub engine: Arc<Engine>,
@@ -45,6 +150,8 @@ pub struct AppState {
     pub jobs: Arc<JobManager>,
     pub store: Arc<Mutex<Store>>,
     pub ranshield: Arc<Mutex<RansomShield>>,
+    /// Platform Authenticode verifier used by `safeos_assess` and related paths.
+    pub signature_verifier: Arc<dyn SignatureVerifier>,
     /// Last facts reported by the platform agent. `None` means "not collected",
     /// which SafeOS treats as every backend unavailable.
     pub host_facts: Mutex<Option<HostFacts>>,
@@ -63,6 +170,24 @@ impl AppState {
         data_dir: &Path,
         token: String,
     ) -> std::io::Result<Arc<AppState>> {
+        Self::new_with_verifier(
+            engine,
+            vault,
+            data_dir,
+            token,
+            Arc::new(PlatformSignatureVerifier),
+        )
+    }
+
+    /// Constructs state with an explicit signature verifier. Production callers
+    /// use `new`; tests use this to exercise both trust outcomes deterministically.
+    pub fn new_with_verifier(
+        engine: Engine,
+        vault: QuarantineVault,
+        data_dir: &Path,
+        token: String,
+        signature_verifier: Arc<dyn SignatureVerifier>,
+    ) -> std::io::Result<Arc<AppState>> {
         let store = Store::open(data_dir)?;
         let realtime_requested = store.settings.realtime_requested;
         Ok(Arc::new(AppState {
@@ -71,6 +196,7 @@ impl AppState {
             jobs: Arc::new(JobManager::new()),
             store: Arc::new(Mutex::new(store)),
             ranshield: Arc::new(Mutex::new(RansomShield::new(Default::default()))),
+            signature_verifier,
             host_facts: Mutex::new(None),
             token,
             data_dir: data_dir.to_path_buf(),

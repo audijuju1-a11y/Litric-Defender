@@ -430,7 +430,7 @@ mod tests {
         HostFacts {
             known: true,
             windows_edition: "Windows 11 Pro".into(),
-            windows_build: 22631,
+            windows_build: 26_200,
             virtualization_enabled: true,
             hyperv_feature_present: true,
             sandbox_feature_present: true,

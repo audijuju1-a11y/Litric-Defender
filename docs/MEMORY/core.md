@@ -22,5 +22,7 @@ Invariants: `Unknown` is never counted as clean; `Suspicious`/`Malicious` requir
 evidence; scan budgets are hard; cancellation is cooperative via `AtomicBool`.
 
 Known gaps: archive recursion, macro extraction, fuzzy hashing, parallel scan,
-Windows file-id dedupe, WinVerifyTrust chain validation. Quarantine recovery is
-proven by simulated journal states, not a real power-loss test.
+Windows file-id dedupe, and native `WinVerifyTrust` execution. The service wires
+`WinVerifyTrust` into `safeos_assess` for Windows, but that path is unproven.
+Quarantine recovery is proven by simulated journal states, not a real power-loss
+test.

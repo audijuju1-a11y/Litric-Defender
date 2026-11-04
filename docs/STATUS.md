@@ -21,8 +21,8 @@ Nothing in this file may be upgraded without the corresponding code and test.
 | Resource walker: version info, embedded manifest (`requireAdministrator`) | TESTED | best-effort VS_VERSIONINFO string extraction |
 | Overlay analysis incl. embedded `MZ` detection | TESTED | `format::find_embedded_pe`, engine test |
 | Rich header, debug PDB path, TLS callbacks, CLR/.NET, ASLR/DEP/CFG flags | TESTED | surfaced in reports |
-| Authenticode blob parsing: presence, PKCS#7, subjects, expiry, EKU, timestamp | TESTED | `authenticode.rs`; **chain trust NOT validated** |
-| Certificate chain / revocation / page-hash verification | PLANNED | requires `WinVerifyTrust` on Windows |
+| Authenticode blob parsing: presence, PKCS#7, subjects, expiry, EKU, timestamp | TESTED | `authenticode.rs`; parser only, chain trust is a separate verifier |
+| Certificate chain / revocation / page-hash verification | UNPROVEN (Windows-only) | `WinVerifyTrust` wiring in `litric-service`; native execution, revocation, and page hashes are not tested |
 | Content-type detection independent of extension | TESTED | PE/ELF/PDF/OLE2/ZIP/OOXML/JAR/RAR/7z/CAB/ISO/LNK/scripts |
 | Litric Rule Syntax: lexer, parser, validator, 15 rules | TESTED | `rules.rs`, `rules/core.lrs` (lint: 15 ok, 0 problems) |
 | Aho–Corasick multi-pattern matcher (original) | TESTED | linear-time test on 4 MB adversarial buffer |
@@ -122,7 +122,7 @@ Nothing in this file may be upgraded without the corresponding code and test.
 
 | Area | State |
 |---|---|
-| Unit tests across engine, rules, PE, vault, DB, scan, RansomShield | TESTED — 90 core tests; full suite 203 tests on Linux x86_64 |
+| Unit tests across engine, rules, PE, vault, DB, scan, RansomShield | TESTED — 90 core tests; full suite 210 tests on Linux x86_64 |
 | Windows-target test suite | TESTED under Wine 11.21 — 195 passed, 0 failed; 8 Windows-excluded tests (6 POSIX-only, 2 coverage gaps); not native Windows |
 | Fuzz/adversarial input handling | PARTIALLY IMPLEMENTED — random/truncated buffers, malformed PE, garbage DER, archive-free |
 | Continuous fuzzing (cargo-fuzz, AFL) | PLANNED |

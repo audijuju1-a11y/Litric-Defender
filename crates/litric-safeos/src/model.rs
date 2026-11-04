@@ -7,8 +7,174 @@
 
 use serde_json::Value;
 
-/// Minimum Windows build for Hyper-V / Windows Sandbox on Windows 11 (21H2).
-pub const MIN_WINDOWS_BUILD: u32 = 22000;
+/// A UTC calendar date used for lifecycle decisions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct LifecycleDate {
+    pub year: i32,
+    pub month: u8,
+    pub day: u8,
+}
+
+impl LifecycleDate {
+    pub const fn new(year: i32, month: u8, day: u8) -> Self {
+        LifecycleDate { year, month, day }
+    }
+
+    /// Today's UTC date, derived from the system clock without a date crate.
+    pub fn today() -> Self {
+        let secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        civil_from_days(secs.div_euclid(86_400))
+    }
+}
+
+impl std::fmt::Display for LifecycleDate {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:04}-{:02}-{:02}", self.year, self.month, self.day)
+    }
+}
+
+/// One Windows 11 release and the end-of-servicing dates that apply to it.
+///
+/// This is the single source of truth for build acceptance. The dates come from
+/// Microsoft's Windows 11 release information: Home/Pro/Pro Education/Pro for
+/// Workstations receive 24 months, Enterprise/Education receive 36 months.
+#[derive(Debug, Clone, Copy)]
+pub struct WindowsRelease {
+    pub name: &'static str,
+    pub build: u32,
+    pub home_pro_end: LifecycleDate,
+    pub enterprise_education_end: LifecycleDate,
+}
+
+/// Windows 11 releases Litric accepts. Builds absent from this table are not
+/// claimed as supported, even when their number is above a historical floor.
+pub const WINDOWS_11_RELEASES: &[WindowsRelease] = &[
+    WindowsRelease {
+        name: "24H2",
+        build: 26_100,
+        home_pro_end: LifecycleDate::new(2026, 10, 14),
+        enterprise_education_end: LifecycleDate::new(2027, 10, 12),
+    },
+    WindowsRelease {
+        name: "25H2",
+        build: 26_200,
+        home_pro_end: LifecycleDate::new(2027, 10, 12),
+        enterprise_education_end: LifecycleDate::new(2028, 10, 10),
+    },
+    WindowsRelease {
+        name: "26H1",
+        build: 28_000,
+        home_pro_end: LifecycleDate::new(2028, 3, 14),
+        enterprise_education_end: LifecycleDate::new(2029, 3, 13),
+    },
+    WindowsRelease {
+        name: "26H2",
+        build: 26_300,
+        home_pro_end: LifecycleDate::new(2028, 10, 10),
+        enterprise_education_end: LifecycleDate::new(2029, 10, 9),
+    },
+];
+
+/// Lifecycle outcome for a reported build and edition.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BuildSupport {
+    Supported {
+        release: &'static str,
+        end: LifecycleDate,
+        edition: &'static str,
+    },
+    Expired {
+        release: &'static str,
+        end: LifecycleDate,
+        edition: &'static str,
+    },
+    UnknownBuild,
+    UnknownEdition,
+}
+
+impl BuildSupport {
+    pub fn is_supported(self) -> bool {
+        matches!(self, BuildSupport::Supported { .. })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EditionChannel {
+    HomePro,
+    Enterprise,
+}
+
+fn edition_channel(edition: &str) -> Option<(EditionChannel, &'static str)> {
+    let e = edition.to_ascii_lowercase();
+    if e.contains("pro education")
+        || e.contains("home")
+        || e.contains("pro for workstations")
+        || e.contains(" se")
+    {
+        return Some((EditionChannel::HomePro, "Home/Pro"));
+    }
+    if e.contains("enterprise") || e.contains("education") {
+        return Some((EditionChannel::Enterprise, "Enterprise/Education"));
+    }
+    if e.contains("pro") {
+        return Some((EditionChannel::HomePro, "Home/Pro"));
+    }
+    None
+}
+
+/// Resolves a reported build and edition against the one lifecycle table above.
+pub fn lifecycle_status(facts: &HostFacts, today: LifecycleDate) -> BuildSupport {
+    let Some(release) = WINDOWS_11_RELEASES
+        .iter()
+        .find(|r| r.build == facts.windows_build)
+    else {
+        return BuildSupport::UnknownBuild;
+    };
+    let Some((channel, edition)) = edition_channel(&facts.windows_edition) else {
+        return BuildSupport::UnknownEdition;
+    };
+    let end = match channel {
+        EditionChannel::HomePro => release.home_pro_end,
+        EditionChannel::Enterprise => release.enterprise_education_end,
+    };
+    if today > end {
+        BuildSupport::Expired {
+            release: release.name,
+            end,
+            edition,
+        }
+    } else {
+        BuildSupport::Supported {
+            release: release.name,
+            end,
+            edition,
+        }
+    }
+}
+
+/// Converts days since the Unix epoch to a proleptic Gregorian date.
+/// Howard Hinnant's civil-from-days algorithm; no external date dependency.
+fn civil_from_days(days: i64) -> LifecycleDate {
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = mp + if mp < 10 { 3 } else { -9 };
+    let year = y + i64::from(month <= 2);
+    LifecycleDate {
+        year: year as i32,
+        month: month as u8,
+        day: day as u8,
+    }
+}
+
 /// Below this the resource governor refuses to start a VM.
 pub const MIN_RAM_MB: u64 = 4096;
 /// Free disk needed for a disposable sandbox session.
@@ -140,7 +306,13 @@ pub struct Readiness {
 }
 
 impl Readiness {
+    /// Evaluates readiness against today's UTC date.
     pub fn evaluate(facts: &HostFacts) -> Self {
+        Self::evaluate_at(facts, LifecycleDate::today())
+    }
+
+    /// Deterministic variant used by tests and by callers that supply a clock.
+    pub fn evaluate_at(facts: &HostFacts, today: LifecycleDate) -> Self {
         let mut blockers = Vec::new();
 
         if !facts.known {
@@ -176,14 +348,43 @@ impl Readiness {
             };
         }
 
-        if facts.windows_build < MIN_WINDOWS_BUILD {
+        let lifecycle = lifecycle_status(facts, today);
+        if !lifecycle.is_supported() {
+            let (reason, remediation) = match lifecycle {
+                BuildSupport::Expired {
+                    release,
+                    end,
+                    edition,
+                } => (
+                    format!(
+                        "Windows 11 {release} (build {}, {edition}) reached end of support on {end}; \
+                         the build is outside the documented lifecycle table",
+                        facts.windows_build
+                    ),
+                    "install a supported Windows 11 release (25H2 or 26H2)".into(),
+                ),
+                BuildSupport::UnknownBuild => (
+                    format!(
+                        "Windows build {} is not in the documented Windows 11 lifecycle table \
+                         (24H2, 25H2, 26H1, 26H2); support cannot be claimed",
+                        facts.windows_build
+                    ),
+                    "report a build from a supported Windows 11 release".into(),
+                ),
+                BuildSupport::UnknownEdition => (
+                    format!(
+                        "Windows edition `{}` is not a recognised Home, Pro, Enterprise, or \
+                         Education edition; support cannot be claimed",
+                        facts.windows_edition
+                    ),
+                    "report the edition exactly as Windows reports it".into(),
+                ),
+                BuildSupport::Supported { .. } => unreachable!(),
+            };
             blockers.push(Blocker {
                 component: "windows_build",
-                reason: format!(
-                    "Windows build {} is older than the supported minimum {}",
-                    facts.windows_build, MIN_WINDOWS_BUILD
-                ),
-                remediation: "update Windows 11 to a supported build".into(),
+                reason,
+                remediation,
             });
         }
 
@@ -206,7 +407,7 @@ impl Readiness {
             });
         }
 
-        let build_ok = facts.windows_build >= MIN_WINDOWS_BUILD;
+        let build_ok = lifecycle.is_supported();
         let ram_ok = facts.total_ram_mb >= MIN_RAM_MB;
         if !ram_ok {
             blockers.push(Blocker {
@@ -344,7 +545,7 @@ mod tests {
         HostFacts {
             known: true,
             windows_edition: "Windows 11 Pro".into(),
-            windows_build: 22631,
+            windows_build: 26_200,
             virtualization_enabled: true,
             hyperv_feature_present: true,
             sandbox_feature_present: true,
@@ -432,11 +633,73 @@ mod tests {
     }
 
     #[test]
+    fn supported_25h2_and_26h2_builds_are_accepted() {
+        let today = LifecycleDate::new(2026, 11, 3);
+        for build in [26_200, 26_300] {
+            let mut f = good();
+            f.windows_build = build;
+            let r = Readiness::evaluate_at(&f, today);
+            assert!(r.sandbox_usable, "build {build} should be supported");
+            assert!(!r.blockers.iter().any(|b| b.component == "windows_build"));
+        }
+    }
+
+    #[test]
+    fn expired_24h2_is_rejected_with_lifecycle_reason() {
+        let mut f = good();
+        f.windows_build = 26_100;
+        let r = Readiness::evaluate_at(&f, LifecycleDate::new(2026, 11, 3));
+        assert!(!r.sandbox_usable && !r.hyperv_usable);
+        let b = r
+            .blockers
+            .iter()
+            .find(|b| b.component == "windows_build")
+            .expect("lifecycle blocker");
+        assert!(b.reason.contains("24H2"), "reason: {}", b.reason);
+        assert!(b.reason.contains("end of support"), "reason: {}", b.reason);
+        assert!(b.reason.contains("2026-10-14"), "reason: {}", b.reason);
+    }
+
+    #[test]
+    fn enterprise_24h2_uses_its_own_end_date() {
+        let mut f = good();
+        f.windows_edition = "Windows 11 Enterprise".into();
+        f.windows_build = 26_100;
+        let supported = Readiness::evaluate_at(&f, LifecycleDate::new(2026, 11, 3));
+        assert!(supported.sandbox_usable);
+        assert!(!supported.blockers.iter().any(|b| b.component == "windows_build"));
+
+        let expired = Readiness::evaluate_at(&f, LifecycleDate::new(2027, 10, 13));
+        assert!(!expired.sandbox_usable);
+        let b = expired
+            .blockers
+            .iter()
+            .find(|b| b.component == "windows_build")
+            .expect("enterprise lifecycle blocker");
+        assert!(b.reason.contains("Enterprise/Education"), "reason: {}", b.reason);
+        assert!(b.reason.contains("2027-10-12"), "reason: {}", b.reason);
+    }
+
+    #[test]
+    fn unknown_build_is_not_accepted_by_a_numeric_floor() {
+        let mut f = good();
+        f.windows_build = 22_631;
+        let r = Readiness::evaluate_at(&f, LifecycleDate::new(2026, 11, 3));
+        assert!(!r.sandbox_usable);
+        let b = r
+            .blockers
+            .iter()
+            .find(|b| b.component == "windows_build")
+            .expect("unknown build blocker");
+        assert!(b.reason.contains("not in the documented Windows 11 lifecycle table"));
+    }
+
+    #[test]
     fn json_facts_parse_and_default_to_unavailable() {
         let f = HostFacts::from_json(&json!({
             "known": true,
             "windows_edition": "Windows 11 Pro",
-            "windows_build": 22631,
+            "windows_build": 26_200,
             "virtualization_enabled": true,
             "hyperv_feature_present": true,
             "sandbox_feature_present": false,

@@ -51,8 +51,9 @@ subjects, validity dates and the code-signing EKU using a small DER walker. It
 does **not** validate the certificate chain to a trusted root, check revocation,
 verify page hashes, or confirm that the signature actually covers the file. A
 report saying "signature present" must be read as "a structurally plausible
-signature blob exists". Chain validation is delegated to `WinVerifyTrust` on
-Windows and is not implemented yet.
+signature blob exists". `safeos_assess` delegates chain validity to
+`WinVerifyTrust` on Windows; that path is compiled but not executed on a native
+Windows host here, and revocation/page-hash checks remain absent.
 
 ## 5. RansomShield makes decisions, not enforcement
 

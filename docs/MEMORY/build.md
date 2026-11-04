@@ -30,8 +30,8 @@ Run the daemon:
 
 ## Test counts at last verification
 
-90 core + 21 service + 8 client + 21 cli integration + 51 safeos + 7 agent +
-5 agent end-to-end = 203. Re-run and update this line; do not assume.
+90 core + 24 service + 8 client + 21 cli integration + 55 safeos + 7 agent +
+5 agent end-to-end = 210. Re-run and update this line; do not assume.
 
 That count was produced on Linux x86_64 (POSIX host). The Windows-target suite
 was also executed under Wine 11.21: 195 passed, 0 failed, with the 8 documented

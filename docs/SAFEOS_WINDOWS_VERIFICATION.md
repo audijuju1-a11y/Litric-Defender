@@ -11,7 +11,7 @@ Run every step below before changing that constant or describing SafeOS as
 
 ## 0. Preconditions (read-only checks)
 
-- Windows 11 Pro/Enterprise, build **≥ 22000** (`winver`).
+- Windows 11 Pro/Enterprise on a build listed in `WINDOWS_11_RELEASES` (`winver`); 25H2 and 26H2 are the primary targets, while 24H2 Home/Pro is past end of support.
 - Virtualization enabled in firmware (Task Manager → Performance → CPU →
   "Virtualization: Enabled").
 - Windows Sandbox installed (Windows Features → "Windows Sandbox"; enabling it
@@ -103,11 +103,13 @@ WinNAT network (`Get-NetNat`), no Windows feature changed.
 
 These are real captures from the `litric` binary against a real `litricd`, with
 facts posted exactly as `litric-agent` posts them. Every refusal exited **2**.
+The Build 21999 wording was updated after the lifecycle table replaced the old
+numeric floor; re-run the command to reproduce the current message.
 
 | Case | HTTP | Daemon message |
 |---|---|---|
 | No facts reported | 409 | `platform_agent: no host facts have been reported by litric-agent` |
-| Build 21999 | 409 | `windows_build: Windows build 21999 is older than the supported minimum 22000` |
+| Build 21999 | 409 | `windows_build: Windows build 21999 is not in the documented Windows 11 lifecycle table (24H2, 25H2, 26H1, 26H2); support cannot be claimed` |
 | Virtualization off | 409 | `virtualization: hardware virtualization (VT-x/AMD-V) is not enabled` |
 | Sandbox feature absent | 409 | `windows_sandbox: Windows Sandbox feature is not installed or not enabled` |
 | RAM 2048 MB | 409 | `memory: 2048 MB installed is below the 4096 MB minimum for isolation` |

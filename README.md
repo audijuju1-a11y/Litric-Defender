@@ -28,7 +28,7 @@ project is early, and the status file lists what is *not* built.
 
 ```bash
 cargo build --release
-cargo test                      # 203 tests on Linux x86_64
+cargo test                      # 210 tests on Linux x86_64
 scripts/windows-wine/setup.sh  # one-time, no-root MinGW + Wine setup
 scripts/windows-wine/run-tests.sh
                                 # 195 tests under Wine 11.21; 8 Windows-excluded
@@ -120,8 +120,9 @@ host in this environment). See [docs/STATUS.md](docs/STATUS.md).
 * The threat database ships with **rules only**. It contains no commercial
   malware-hash feed, so hash reputation coverage is currently zero by design —
   the engine says so in every report.
-* Authenticode parsing extracts signer names and validity dates but does **not**
-  validate certificate chains (that needs WinVerifyTrust on Windows).
+* Authenticode parsing extracts signer names and validity dates but the engine
+  does **not** validate certificate chains. `safeos_assess` calls a Windows-only
+  `WinVerifyTrust` verifier for chain validity; native execution remains unproven.
 * Archive/binary containers are identified but their members are not yet scanned
   recursively.
 

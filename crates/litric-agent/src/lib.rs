@@ -254,7 +254,7 @@ mod tests {
     const GOOD: &str = r#"{
         "known": true,
         "windows_edition": "Windows 11 Pro",
-        "windows_build": 22631,
+        "windows_build": 26200,
         "virtualization_enabled": true,
         "hyperv_feature_present": true,
         "sandbox_feature_present": true,
@@ -282,7 +282,7 @@ mod tests {
 
     #[test]
     fn reports_without_windows_identity_are_rejected() {
-        let e = facts_from_json_text(r#"{"known":true,"windows_build":22631,"total_ram_mb":8192}"#)
+        let e = facts_from_json_text(r#"{"known":true,"windows_build":26200,"total_ram_mb":8192}"#)
             .unwrap_err();
         assert!(e.contains("windows_edition"), "{e}");
     }

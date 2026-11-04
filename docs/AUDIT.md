@@ -96,7 +96,7 @@ hash feed is installed.
 | Weakness | Impact | Mitigation planned |
 |---|---|---|
 | No recursive archive scanning | Malware inside ZIP/ISO/MSI is identified only as a container | `archive` module with depth/size/ratio limits (`STATUS.md`) |
-| No Authenticode chain validation | "Signed" means "has a plausible signature", not "trusted publisher" | `WinVerifyTrust` in the Windows service |
+| Native Authenticode chain execution unproven | Engine trust dampening still treats "signed" as structural; `safeos_assess` uses `WinVerifyTrust` on Windows, but native execution, revocation, and page hashes are unproven | Native Windows certificate matrix; keep parser wording scoped to the engine |
 | No script de-obfuscation | Encoded PowerShell is flagged, not decoded | Static decoder with instruction budget |
 | Threat DB contains no hash feed | Zero hash-reputation coverage | Licensed feed or community corpus with clean licence |
 | Rules tested only on synthetic fixtures | Unknown false-positive rate on real corpora | Labelled corpus + FP measurement harness |

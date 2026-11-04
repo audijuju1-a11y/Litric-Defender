@@ -43,8 +43,9 @@
   no system-wide App Control policy in this build.
 * Host-side ACLs for the staging root are not implemented; rely on service
   account permissions when the service exists.
-* Signing-chain validation is not implemented, so trust decisions cap at Level 1
-  unless the engine returns malicious evidence.
+* Native signing-chain validation is unproven. The portable path caps trust at
+  Level 1; on Windows, `safeos_assess` may reach `Trusted` only after
+  `WinVerifyTrust` accepts the chain, and that execution has not been tested here.
 * Guest telemetry, even when built, can be tampered with by malware; host-side
   correlation reduces but does not eliminate blind spots.
 

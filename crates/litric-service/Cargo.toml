@@ -22,3 +22,10 @@ serde_json.workspace = true
 getrandom.workspace = true
 tiny_http = "0.12"
 clap.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Security_Cryptography",
+    "Win32_Security_WinTrust",
+] }

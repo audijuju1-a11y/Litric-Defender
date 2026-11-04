@@ -1,6 +1,6 @@
 # Daemon (litricd) area memory
 
-Crate: `crates/litric-service` (21 tests). Binary `litricd`:
+Crate: `crates/litric-service` (24 tests). Binary `litricd`:
 `serve` and `token` subcommands.
 
 | Module | Responsibility |

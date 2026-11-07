@@ -65,7 +65,8 @@ fresh directory: 2,498,974 executions, 14,462 new units, 0 artifacts. Evidence:
 `target/evidence/phase1/fuzz/SUMMARY.txt` and
 `target/evidence/phase1/fuzz-verify/SUMMARY.txt`; the clean-checkout proof is
 `target/evidence/phase1/clean-build.log` plus
-`target/evidence/phase1/fuzz-clean-verify/SUMMARY.txt`. Method and limitations:
+`target/evidence/phase1/fuzz-clean-verify/SUMMARY.txt`; committed summaries are
+indexed in `docs/evidence/phase1/README.md`. Method and limitations:
 `docs/PHASE1_COVERAGE_FUZZ.md`. `.github/workflows/fuzz.yml` runs the same
 bounded campaign nightly but has not yet executed on GitHub Actions; do not
 cite it as evidence.

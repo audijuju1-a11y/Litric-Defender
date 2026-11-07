@@ -65,7 +65,9 @@ bash fuzz/run_campaign.sh all           # 120 s per target by default
 ```
 
 The measured run produced 8,380,123 executions with 0 crash artifacts; it used
-`--sanitizer none`, so it is not a substitute for an ASan/MSan run.
+`--sanitizer none`, so it is not a substitute for an ASan/MSan run. Committed
+build logs and campaign summaries are indexed in
+[`docs/evidence/phase1/README.md`](docs/evidence/phase1/README.md).
 
 ### Local API backend
 

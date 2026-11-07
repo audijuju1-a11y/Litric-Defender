@@ -1,0 +1,11 @@
+== fuzz_pe: 30s, corpus=target/evidence/phase1/fuzz-clean-verify/corpus/pe ==
+INFO: Loaded 1 modules   (43263 inline 8-bit counters): 43263 [00007ff6fb3a8008, 00007ff6fb3b2907), 
+INFO: Loaded 1 PC tables (43263 PCs): 43263 [00007ff6fb3b2910,00007ff6fb45b900), 
+#2	INITED cov: 183 ft: 183 corp: 1/1024b exec/s: 0 rss: 30Mb
+#871292	DONE   cov: 606 ft: 2481 corp: 905/651Kb lim: 3253 exec/s: 28106 rss: 35Mb
+stat::number_of_executed_units: 871292
+stat::average_exec_per_sec:     28106
+stat::new_units_added:          2790
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              35
+log: target/evidence/phase1/fuzz-clean-verify/fuzz-pe.log

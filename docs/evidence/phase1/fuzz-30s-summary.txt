@@ -1,0 +1,86 @@
+# Phase 1 coverage-guided fuzz — independent reproduction
+
+date: 2026-11-07
+host: Windows 11 Home 26H2, build 26300.9457, x86_64
+toolchain: rustc 1.101.0-nightly (c980177d8 2026-11-06), x86_64-pc-windows-gnu
+cargo-fuzz: 0.13.2
+c++ runtime: g++ (MinGW-W64 x86_64-ucrt-posix-seh) 16.2.0
+sanitizer: none (no ASan/UBSan on this GNU host)
+
+command:
+  bash fuzz/run_campaign.sh all 30 target/evidence/phase1/fuzz-verify
+
+purpose:
+  Re-run the bounded campaign from a fresh evidence directory rather than
+  trusting the earlier 120-second run. This proves the checked-in build and
+  launcher still reproduce instrumented, coverage-guided execution.
+
+## instrumentation (must be non-zero to count as coverage-guided)
+
+| target | inline 8-bit counters | PC table entries |
+|---|---:|---:|
+| pe  | 43,263 | 43,263 |
+| zip | 44,299 | 44,299 |
+| vba | 43,221 | 43,221 |
+| xlm | 43,217 | 43,217 |
+
+Counter count == PC-table count for every target, and libFuzzer reports both.
+The binaries are not uninstrumented exit-0 builds.
+
+## campaign results
+
+| target | initial cov / ft | final cov / ft | executions | exec/s | new units | corpus files | peak RSS |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| pe  | 183 / 183 | 648 / 2,784 | 986,681 | 31,828 | 3,017 | 957 | 35 MB |
+| zip | 361 / 674 | 797 / 3,383 | 680,257 | 21,943 | 4,251 | 697 | 35 MB |
+| vba | 418 / 422 | 939 / 3,253 | 368,981 | 11,902 | 3,746 | 726 | 41 MB |
+| xlm | 518 / 525 | 1,065 / 3,394 | 463,055 | 14,937 | 3,448 | 731 | 45 MB |
+
+totals:
+  executions: 2,498,974
+  corpus files: 3,111
+  new units added by libFuzzer: 14,462
+  peak RSS: 45 MB
+  crash/timeout/OOM/leak artifacts: 0
+
+Coverage and feature counters rise in all four targets and the corpus grows,
+which is the observable signature of feedback-driven fuzzing. A flat run from
+a single seed would not add thousands of units.
+
+## artifacts
+
+  find target/evidence/phase1/fuzz-verify/artifacts -type f  ->  no files
+  grep "ERROR: libFuzzer|deadly signal|SUMMARY: libFuzzer|out-of-memory"
+    over all four logs -> 0 matches
+
+## logs and corpus
+
+  target/evidence/phase1/fuzz-verify/fuzz-{pe,zip,vba,xlm}.log
+  target/evidence/phase1/fuzz-verify/corpus/{pe,zip,vba,xlm}/
+  target/evidence/phase1/fuzz-verify-console.log
+
+## clean rebuild after the verification run
+
+  bash fuzz/build.sh  -> exit 0
+  (MinGW libFuzzer runtime + all four targets rebuilt; 47.5 s first target,
+   then 1-4 s each)
+
+Post-rebuild smoke, 1,000 runs per target against the evolved corpus:
+
+| target | counters | INITED cov/ft | DONE cov/ft | errors |
+|---|---:|---:|---:|---:|
+| pe  | 43,263 | 647 / 2,782 | 647 / 2,782 | 0 |
+| zip | 44,299 | 796 / 3,379 | 796 / 3,379 | 0 |
+| vba | 43,221 | 937 / 3,249 | 937 / 3,249 | 0 |
+| xlm | 43,217 | 1,063 / 3,390 | 1,063 / 3,390 | 0 |
+
+Logs: `build.log`, `post-build-smoke.log`. The smoke started from an already
+evolved corpus, so it is an instrumentation check, not a coverage-growth run.
+
+## limitations (unchanged)
+
+  * 30 seconds per target is a regression check, not a soak.
+  * No AddressSanitizer/UndefinedBehaviorSanitizer on this host.
+  * No structure-aware mutator; libFuzzer mutates bytes.
+  * Parser process isolation is not implemented.
+  * Corpus files are evidence, not product input and not checked in.

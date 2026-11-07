@@ -191,10 +191,13 @@ targets. The PE campaign then reported:
 | PE | 43,263 | 183 / 183 | 606 / 2,481 | 871,292 | 2,790 | 35 MB |
 
 Corpus: 905 units reported by libFuzzer, 904 files on disk; artifacts: **0**.
-The 63 MiB downloaded CARGO_HOME cache was removed after the run. Evidence:
-`target/evidence/phase1/clean-build.log`,
+The 63 MiB downloaded CARGO_HOME cache was removed after the run. Local
+machine evidence: `target/evidence/phase1/clean-build.log`,
 `target/evidence/phase1/fuzz-clean-verify-console.log`, and
 `target/evidence/phase1/fuzz-clean-verify/{SUMMARY.txt,fuzz-pe.log,corpus,artifacts}`.
+A committed copy of the build log, campaign summary and raw PE log, plus the
+120-second and independent summaries, is indexed in
+[`docs/evidence/phase1/README.md`](evidence/phase1/README.md).
 
 This proves the clean registry path and one parser campaign, not all four
 targets in a clean environment. The campaign script now also fails unless

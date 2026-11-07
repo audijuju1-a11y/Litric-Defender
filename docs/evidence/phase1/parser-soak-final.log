@@ -1,0 +1,22 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.20s
+     Running tests\parser_fuzz_soak.rs (target\debug\deps\parser_fuzz_soak-44ae35a4f6d7c0d4.exe)
+
+running 8 tests
+test archive_refuses_bombs_and_unsafe_names ... ok
+test concurrent_parsing_is_deterministic ... PARSER_SOAK_CONCURRENCY threads=8 cases=64 parses=12288 elapsed_ms=44 parses_per_sec=273369.80340421933
+ok
+test corrupt_containers_are_reported_not_clean ... ok
+test pe_mutations_are_total_and_bounded ... PARSER_SOAK parser=pe iterations=20000 batches=4 ok=16516 error=3484 panics=0 elapsed_ms=580 max_input_us=804 peak_private_kib=3308 peak_delta_kib=20 lifetime_peak_private_kib=3876 batch_private_kib=[3308, 3308, 3308, 3308]
+ok
+test targeted_header_values_do_not_panic ... ok
+test vba_mutations_are_bounded ... PARSER_SOAK parser=vba-cfb iterations=6000 batches=4 ok=2378 error=3622 panics=0 elapsed_ms=346 max_input_us=6478 peak_private_kib=3392 peak_delta_kib=100 lifetime_peak_private_kib=15768 batch_private_kib=[3392, 3392, 3384, 3384]
+PARSER_SOAK parser=vba-ooxml iterations=3000 batches=4 ok=1158 error=1842 panics=0 elapsed_ms=394 max_input_us=1205 peak_private_kib=4180 peak_delta_kib=796 lifetime_peak_private_kib=16528 batch_private_kib=[4176, 3660, 4180, 4176]
+ok
+test xlm_mutations_are_bounded ... PARSER_SOAK parser=xlm-biff iterations=5000 batches=4 ok=2124 error=2876 panics=0 elapsed_ms=178 max_input_us=5936 peak_private_kib=4176 peak_delta_kib=12 lifetime_peak_private_kib=20628 batch_private_kib=[4156, 4156, 4156, 4168]
+PARSER_SOAK parser=xlm-ooxml iterations=3000 batches=4 ok=3000 error=0 panics=0 elapsed_ms=206 max_input_us=616 peak_private_kib=4168 peak_delta_kib=0 lifetime_peak_private_kib=20628 batch_private_kib=[4168, 4168, 4168, 4168]
+ok
+test zip_mutations_respect_limits ... PARSER_SOAK parser=zip iterations=8000 batches=4 ok=1967 error=6033 panics=0 elapsed_ms=129 max_input_us=1381 peak_private_kib=4276 peak_delta_kib=112 lifetime_peak_private_kib=20628 batch_private_kib=[3572, 4268, 4276, 4276]
+ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.95s
+

@@ -1,0 +1,66 @@
+# Phase 1 coverage-guided fuzz evidence
+date: 2026-11-07T05:37:58Z
+host: Windows 11 x86_64, x86_64-pc-windows-gnu
+rustc: rustc 1.101.0-nightly (c980177d8 2026-11-06) binary: rustc commit-hash: c980177d81d16f843a500905ac98c0cf3af1fd8d commit-date: 2026-11-06 host: x86_64-pc-windows-gnu release: 1.101.0-nightly LLVM version: 23.1.5 
+cargo-fuzz: cargo-fuzz 0.13.2
+g++: g++.exe (MinGW-W64 x86_64-ucrt-posix-seh, built by Brecht Sanders, r1) 16.2.0
+command: bash fuzz/run_campaign.sh all 120 target/evidence/phase1/fuzz
+
+## campaign results
+### pe
+INFO: Loaded 1 modules   (43263 inline 8-bit counters): 43263 [00007ff72f0c6008, 00007ff72f0d0907), 
+INFO: Loaded 1 PC tables (43263 PCs): 43263 [00007ff72f0d0910,00007ff72f179900), 
+#2	INITED cov: 183 ft: 183 corp: 1/1024b exec/s: 0 rss: 30Mb
+#1680830	DONE   cov: 653 ft: 3099 corp: 1145/1020Kb lim: 6812 exec/s: 13891 rss: 55Mb
+stat::number_of_executed_units: 1680830
+stat::average_exec_per_sec:     13891
+stat::peak_rss_mb:              55
+corpus_files: 1144
+corpus_bytes: 1044746
+
+### zip
+INFO: Loaded 1 modules   (44299 inline 8-bit counters): 44299 [00007ff7a11f4008, 00007ff7a11fed13), 
+INFO: Loaded 1 PC tables (44299 PCs): 44299 [00007ff7a11fed20,00007ff7a12abdd0), 
+#4	INITED cov: 361 ft: 674 corp: 3/3561b exec/s: 0 rss: 30Mb
+#2567924	DONE   cov: 990 ft: 4381 corp: 1055/1047Kb lim: 7888 exec/s: 21222 rss: 37Mb
+stat::number_of_executed_units: 2567924
+stat::average_exec_per_sec:     21222
+stat::peak_rss_mb:              37
+corpus_files: 1054
+corpus_bytes: 1072888
+
+### vba
+INFO: Loaded 1 modules   (43221 inline 8-bit counters): 43221 [00007ff65e9c6008, 00007ff65e9d08dd), 
+INFO: Loaded 1 PC tables (43221 PCs): 43221 [00007ff65e9d08e8,00007ff65ea79638), 
+#3	INITED cov: 418 ft: 422 corp: 2/5501b exec/s: 0 rss: 30Mb
+#1600028	DONE   cov: 976 ft: 3798 corp: 964/1579Kb lim: 4312 exec/s: 13223 rss: 46Mb
+stat::number_of_executed_units: 1600028
+stat::average_exec_per_sec:     13223
+stat::peak_rss_mb:              46
+corpus_files: 962
+corpus_bytes: 1617662
+
+### xlm
+INFO: Loaded 1 modules   (43217 inline 8-bit counters): 43217 [00007ff780086008, 00007ff7800908d9), 
+INFO: Loaded 1 PC tables (43217 PCs): 43217 [00007ff7800908e8,00007ff7801395f8), 
+#3	INITED cov: 518 ft: 525 corp: 2/3038b exec/s: 0 rss: 30Mb
+#2531341	DONE   cov: 1336 ft: 4765 corp: 1168/1572Kb lim: 8036 exec/s: 20920 rss: 46Mb
+stat::number_of_executed_units: 2531341
+stat::average_exec_per_sec:     20920
+stat::peak_rss_mb:              46
+corpus_files: 1166
+corpus_bytes: 1610373
+
+## totals
+executions: 8380123
+corpus_files: 4326
+corpus_bytes: 5345669
+
+## artifacts
+(none above means no crash, timeout, OOM or leak artifact)
+
+## binary hashes
+ab7702579270b2372c16341cf86f0c60722b8bb8575ca55cba4e4ff37d4fbc2f *fuzz/target/x86_64-pc-windows-gnu/release/fuzz_pe.exe
+1ce68a315aef8f0614303e943880b911e2206b6d0c6a4d796f3ca64f138ebf6e *fuzz/target/x86_64-pc-windows-gnu/release/fuzz_zip.exe
+e4a4a193c9f1b9158c1988a5644987e4e6fd6d841050c298fc35dca81dcfffcf *fuzz/target/x86_64-pc-windows-gnu/release/fuzz_vba.exe
+dc5ef2342d770e95140244a4a271687db7a41ee88ea4ce5ca5965b78f7df42f2 *fuzz/target/x86_64-pc-windows-gnu/release/fuzz_xlm.exe

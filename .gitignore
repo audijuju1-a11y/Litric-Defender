@@ -3,5 +3,7 @@
 .env
 .dev.vars
 *.log
+# Committed Phase 1 evidence logs are reviewed raw output, not local build logs.
+!docs/evidence/**/*.log
 litric-data/
 windows-evidence.txt

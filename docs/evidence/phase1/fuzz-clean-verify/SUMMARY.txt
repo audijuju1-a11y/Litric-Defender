@@ -1,0 +1,74 @@
+# Clean-checkout fuzz verification
+
+date: 2026-11-07
+host: Windows 11 Home 26H2, build 26300.9457, x86_64
+toolchain: rustc 1.101.0-nightly (c980177d8 2026-11-06), x86_64-pc-windows-gnu
+cargo-fuzz: 0.13.2
+c++ runtime: g++ (MinGW-W64 x86_64-ucrt-posix-seh) 16.2.0
+
+## What was made clean
+
+Both caches that could hide the reported failure were removed before the build:
+
+  rm -rf fuzz/target
+  rm -rf target/evidence/phase1/clean-cargo-home
+
+The build then ran with:
+
+  CARGO_HOME="$PWD/target/evidence/phase1/clean-cargo-home" bash fuzz/build.sh
+
+The empty CARGO_HOME is the clean-checkout condition that previously failed with
+"no matching package named `libfuzzer-sys`". The fixed runtime builder runs
+`cargo fetch --locked` before its offline metadata lookup.
+
+## Build result
+
+  exit: 0
+  log: target/evidence/phase1/clean-build.log
+
+Fetched dependencies include libfuzzer-sys v0.4.13 and the litric-core
+dependency graph. The MinGW libFuzzer runtime was rebuilt, then all four targets:
+
+  fuzz_pe   finished release profile in 1m 31s
+  fuzz_zip  finished release profile in 5.52s
+  fuzz_vba  finished release profile in 1.44s
+  fuzz_xlm  finished release profile in 1.55s
+
+## Campaign
+
+Command:
+
+  bash fuzz/run_campaign.sh pe 30 target/evidence/phase1/fuzz-clean-verify
+
+Result:
+
+  instrumentation: 43,263 inline 8-bit counters / 43,263 PC entries
+  initial coverage: 183 / 183
+  final coverage:   606 / 2,481
+  executions:       871,292
+  exec/s:           28,106
+  new units:        2,790
+  corpus:           905 units reported (`corp: 905/651Kb`), 904 files on disk
+  peak RSS:         35 MB
+  crash/timeout/OOM/leak artifacts: 0
+
+The revised campaign script now fails if libFuzzer reports no module counters or
+zero initial coverage, so an uninstrumented binary cannot be recorded as a
+successful campaign.
+
+## Evidence files
+
+  target/evidence/phase1/clean-build.log
+  target/evidence/phase1/fuzz-clean-verify-console.log
+  target/evidence/phase1/fuzz-clean-verify/fuzz-pe.log
+  target/evidence/phase1/fuzz-clean-verify/corpus/pe/
+  target/evidence/phase1/fuzz-clean-verify/artifacts/pe/  (empty)
+
+The downloaded clean CARGO_HOME cache (63 MiB) was removed after the run; the
+build and campaign logs are retained.
+
+## Limitations
+
+This proves the clean registry path and one parser campaign, not all four
+targets in a clean environment. CI has not run on GitHub Actions. The build
+still uses `--sanitizer none`; no ASan/UBSan evidence is claimed.

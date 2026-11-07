@@ -1,0 +1,1086 @@
+   Compiling litric-core v0.1.0 (D:\Litric Defender Win 11\litric\crates\litric-core)
+warning: calls to `std::mem::drop` with a value that implements `Copy` does nothing
+  --> crates\sigdb\examples\scale.rs:28:5
+   |
+28 |     drop(rnd);
+   |     ^^^^^---^
+   |          |
+   |          argument has type `{closure@crates\sigdb\examples\scale.rs:15:19: 15:26}`
+   |
+   = note: `#[warn(dropping_copy_types)]` on by default
+help: use `let _ = ...` to ignore the expression or result
+   |
+28 -     drop(rnd);
+28 +     let _ = rnd;
+   |
+
+warning: `sigdb` (example "scale") generated 1 warning
+   Compiling processgate v0.1.0 (D:\Litric Defender Win 11\litric\crates\processgate)
+   Compiling litric-safeos v0.1.0 (D:\Litric Defender Win 11\litric\crates\litric-safeos)
+   Compiling litric-pipeline v0.1.0 (D:\Litric Defender Win 11\litric\crates\litric-pipeline)
+   Compiling litric-cli v0.1.0 (D:\Litric Defender Win 11\litric\crates\litric-cli)
+   Compiling litric-monitor v0.1.0 (D:\Litric Defender Win 11\litric\crates\litric-monitor)
+   Compiling litric-yara v0.1.0 (D:\Litric Defender Win 11\litric\crates\litric-yara)
+   Compiling litric-service v0.1.0 (D:\Litric Defender Win 11\litric\crates\litric-service)
+   Compiling litric-agent v0.1.0 (D:\Litric Defender Win 11\litric\crates\litric-agent)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 30.43s
+     Running unittests src\lib.rs (target\debug\deps\clamav_import-4c5aeab110fa2818.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src\main.rs (target\debug\deps\litric_clamav_import-f8a1410af30c5aac.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\import.rs (target\debug\deps\import-4803ea0b4c3a2588.exe)
+
+running 17 tests
+test hdb_md5_lines_import_with_extra_fields_and_the_real_eicar_entry ... ok
+test duplicates_are_dropped_once_and_counted ... ok
+test a_source_note_is_mandatory_and_output_is_deterministic ... ok
+test ignore_lists_disable_signatures_by_name_and_are_reported ... ok
+test hash_type_must_match_the_file_type_and_bad_lines_are_rejected_with_line_numbers ... ok
+test ldb_unsupported_features_are_counted_by_reason ... ok
+test ldb_malformed_lines_rejected_and_duplicates_pua_ignore_work ... ok
+test allowlists_fp_and_sfp_become_allow_entries ... ok
+test ndb_supported_lines_import_with_fl_fields_and_load_as_valid_rules ... ok
+test ndb_unsupported_features_are_counted_by_reason_never_dropped_silently ... ok
+test ldb_supported_lines_import_and_load_as_valid_rules ... ok
+test every_input_file_appears_in_the_report_and_unsupported_ones_say_why ... ok
+test pua_signatures_are_low_severity_and_names_are_sanitized ... ok
+test ndb_malformed_lines_are_rejected_and_duplicates_ndu_and_ignore_work ... ok
+test pe_section_hash_files_use_size_then_hash_layout ... ok
+test wildcard_size_is_reported_as_unsupported_not_dropped_silently ... ok
+test pipeline_import_sign_install_load_lookup ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+
+     Running unittests src\lib.rs (target\debug\deps\honeyvault-edfd9a7a50c6ade1.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src\lib.rs (target\debug\deps\litric_agent-8c2285de573e4b65.exe)
+
+running 7 tests
+test tests::collector_is_read_only ... ok
+test tests::chunked_responses_are_decoded ... ok
+test tests::a_real_shaped_report_parses_and_is_usable ... ok
+test tests::reports_without_known_are_rejected ... ok
+test tests::a_failed_nat_query_is_not_treated_as_zero ... ok
+test tests::reports_without_windows_identity_are_rejected ... ok
+test tests::summary_reports_host_readiness_not_a_launch_claim ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src\main.rs (target\debug\deps\litric_agent-3cd116eafadb0a51.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\agent_e2e.rs (target\debug\deps\agent_e2e-7c874aece1023861.exe)
+
+running 4 tests
+test launch_is_refused_until_facts_are_reported ... ok
+test failed_nat_query_is_refused_by_the_daemon_status ... ok
+test agent_report_updates_status_but_never_claims_a_launcher ... ok
+test invalid_report_is_rejected_and_does_not_replace_good_facts ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.26s
+
+     Running unittests src\lib.rs (target\debug\deps\litric_cli-b683974ad1b3db79.exe)
+
+running 8 tests
+test client::tests::parses_chunked_response ... ok
+test client::tests::parses_content_length_response ... ok
+test client::tests::cancelled_and_failed_are_stated_plainly ... ok
+test client::tests::completed_job_lists_detections ... ok
+test client::tests::quarantine_rendering_handles_empty_and_entries ... ok
+test client::tests::rejects_malformed_response ... ok
+test client::tests::status_rendering_never_invents_protection ... ok
+test client::tests::missing_token_file_is_actionable ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src\main.rs (target\debug\deps\litric-6c95df2c7e5ef81e.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\daemon_e2e.rs (target\debug\deps\daemon_e2e-4cbc834d462e7309.exe)
+
+running 16 tests
+test empty_quarantine_lists_cleanly ... ok
+test missing_token_file_is_actionable ... ok
+test analyze_reports_detection_through_daemon ... ok
+test quarantine_add_defaults_to_copy_and_leaves_the_original ... ok
+test safeos_status_reports_unavailable_backends_honestly ... ok
+test safeos_assess_blocks_malicious_sample ... ok
+test cancel_reports_unknown_and_finished_jobs ... ok
+test quarantine_add_then_list_round_trip ... ok
+test scan_with_fail_on_threat_exits_non_zero ... ok
+test safeos_assess_denies_unknown_app_instead_of_host_execution ... ok
+test status_goes_through_the_daemon_and_reports_limited ... ok
+test wrong_token_is_rejected_with_guidance ... ok
+test scan_detects_eicar_and_shows_terminal_result ... ok
+test quarantine_refuses_overwrite_and_corrupt_entries ... ok
+test quarantine_lifecycle_restore_purge_and_terminal_errors ... ok
+test stopped_daemon_is_reported_not_hidden ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.08s
+
+     Running tests\guard_e2e.rs (target\debug\deps\guard_e2e-12fec6952ca09b29.exe)
+
+running 4 tests
+test unknown_is_blocked_by_default ... ok
+test malicious_target_is_blocked_and_left_in_place_by_default ... ok
+test an_explicit_quarantine_moves_the_malicious_target_before_it_can_run ... ok
+test unknown_can_run_only_with_the_explicit_override ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.39s
+
+     Running tests\platform_evidence.rs (target\debug\deps\platform_evidence-d9c615e538e13a88.exe)
+
+running 2 tests
+test unverified_capabilities_are_derived_from_the_gate ... ok
+test readiness_doc_matches_gate_and_no_posix_gate_returns ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running tests\scan_quarantine_e2e.rs (target\debug\deps\scan_quarantine_e2e-32d1600082e00372.exe)
+
+running 8 tests
+test dev_signed_database_is_refused_without_explicit_opt_in ... ok
+test a_failed_vault_write_retains_the_original_and_exits_4 ... ok
+test single_file_target_is_quarantined ... ok
+test an_xor_char_array_dropper_is_quarantined ... ok
+test an_encoded_powershell_dropper_is_quarantined ... ok
+test malicious_zip_member_quarantines_the_container_without_touching_benign_files ... ok
+test scan_quarantine_preserves_alternate_streams_and_timestamps ... ok
+test directory_scan_moves_only_malicious_and_is_safe_to_repeat ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.41s
+
+     Running unittests src\lib.rs (target\debug\deps\litric_core-b963addc24e184bc.exe)
+
+running 232 tests
+test authenticode::tests::certificate_extraction_does_not_panic_on_garbage ... ok
+test authenticode::tests::oid_common_name_is_found ... ok
+test authenticode::tests::der_length_parsing ... ok
+test authenticode::tests::utc_time_year_parsing ... ok
+test authenticode::tests::malformed_win_certificate_is_rejected ... ok
+test biff::tests::a_formula_record_carries_the_token_stream ... ok
+test biff::tests::an_array_constant_without_extra_data_is_marked_incomplete ... ok
+test biff::tests::an_array_constant_is_rendered_from_its_extra_data ... ok
+test biff::tests::an_unknown_macro_function_is_not_given_a_guessed_name ... ok
+test archive::tests::depth_limit_is_explicit ... ok
+test biff::tests::arithmetic_numbers_and_references_render ... ok
+test biff::tests::biff5_areas_and_names_use_the_biff5_token_sizes ... ok
+test archive::tests::member_byte_limit_skips_expansion ... ok
+test biff::tests::biff5_strings_functions_and_cell_references_are_decoded ... ok
+test biff::tests::biff7_uses_the_biff5_token_layout ... ok
+test archive::tests::finds_a_member_and_preserves_its_name ... ok
+test biff::tests::call_and_register_use_their_ftab_ids ... ok
+test biff::tests::exec_is_decoded_from_a_macro_call_token ... ok
+test biff::tests::file_io_and_control_functions_are_named ... ok
+test biff::tests::memory_tokens_keep_the_reference_expression_they_wrap ... ok
+test biff::tests::strings_are_escaped_for_rule_matching ... ok
+test biff::tests::the_generated_ftab_is_sorted_unique_and_matches_the_spec ... ok
+test archive::tests::rejects_path_traversal_names_without_analyzing_them ... ok
+test biff::tests::truncated_tokens_are_reported_and_never_panic ... ok
+test biff::tests::unsupported_biff5_tokens_are_reported_not_misread ... ok
+test bytes::tests::bounds_are_enforced ... ok
+test bytes::tests::cstr_is_capped ... ok
+test bytes::tests::offsets_near_usize_max_do_not_overflow ... ok
+test bytes::tests::utf16_roundtrip ... ok
+test deobfuscate::tests::a_char_array_of_non_printable_codes_is_ignored ... ok
+test deobfuscate::tests::a_char_array_literal_is_decoded ... ok
+test deobfuscate::tests::a_char_cast_chain_is_decoded ... ok
+test deobfuscate::tests::a_spent_budget_refuses_further_work ... ok
+test deobfuscate::tests::an_array_with_a_variable_is_ignored ... ok
+test deobfuscate::tests::an_unterminated_array_is_ignored ... ok
+test deobfuscate::tests::an_xor_char_array_literal_is_decoded ... ok
+test deobfuscate::tests::atob_is_decoded ... ok
+test deobfuscate::tests::base64_without_a_marker_is_ignored ... ok
+test deobfuscate::tests::binary_input_is_ignored ... ok
+test deobfuscate::tests::decimal_and_hex_items_mix ... ok
+test deobfuscate::tests::duplicate_payloads_are_returned_once ... ok
+test deobfuscate::tests::from_base64_string_is_decoded ... ok
+test deobfuscate::tests::malformed_base64_is_skipped ... ok
+test deobfuscate::tests::the_depth_budget_stops_a_second_layer ... ok
+test deobfuscate::tests::the_step_budget_stops_decoding ... ok
+test deobfuscate::tests::the_decoded_volume_is_capped ... ok
+test deobfuscate::tests::powershell_encoded_command_is_decoded_to_text ... ok
+test deobfuscate::tests::tiny_blobs_are_ignored ... ok
+test engine::tests::a_benign_char_array_does_not_escalate_a_script ... ok
+test engine::tests::a_two_layer_encoded_payload_is_decoded_end_to_end ... ok
+test engine::tests::an_encoded_powershell_payload_is_decoded_and_detected ... ok
+test engine::tests::a_legacy_xls_exec_formula_is_flagged ... ok
+test engine::tests::a_legacy_ole_document_with_a_macro_is_flagged ... ok
+test engine::tests::archive_depth_limit_is_reported_not_silently_clean ... ok
+test engine::tests::a_vba_pcode_cache_is_reported_not_interpreted ... ok
+test engine::tests::base64_of_a_benign_image_does_not_escalate_a_script ... ok
+test engine::tests::eicar_is_detected_by_rule ... ok
+test engine::tests::medium_rule_alone_is_suspicious_not_malicious ... ok
+test engine::tests::a_benign_macro_is_not_escalated ... ok
+test engine::tests::benign_zip_stays_unknown ... ok
+test engine::tests::critical_rule_makes_it_malicious ... ok
+test engine::tests::a_legacy_xls_macro_sheet_is_suspicious ... ok
+test engine::tests::truncated_pe_does_not_panic ... ok
+test engine::tests::plain_text_is_unknown_not_clean ... ok
+test engine::tests::nested_zip_member_is_inspected ... ok
+test engine::tests::a_biff5_xls_exec_formula_is_flagged ... ok
+test entropy::tests::empty_input_is_safe ... ok
+test entropy::tests::half_compressed_data_has_partial_ratio ... ok
+test format::tests::detects_basic_magics ... ok
+test engine::tests::unmarked_base64_is_never_decoded ... ok
+test entropy::tests::uniform_bytes_are_zero_entropy ... ok
+test format::tests::detects_scripts_by_content ... ok
+test format::tests::text_detection_does_not_crash_on_binary ... ok
+test guard::tests::clean_is_allowed ... ok
+test engine::tests::zip_member_with_eicar_is_malicious ... ok
+test format::tests::embedded_pe_is_found ... ok
+test format::tests::extension_mismatch_is_visible ... ok
+test guard::tests::malicious_is_blocked_and_left_in_place_by_default ... ok
+test guard::tests::malicious_is_quarantined_only_when_explicitly_enabled ... ok
+test guard::tests::malicious_prefix_wins_over_truncation ... ok
+test guard::tests::suspicious_is_blocked ... ok
+test guard::tests::unknown_is_blocked_without_an_explicit_override ... ok
+test hash::tests::empty_sha256_vector ... ok
+test entropy::tests::random_bytes_approach_eight ... ok
+test hash::tests::known_sha256_vector ... ok
+test heuristics::tests::clean_text_has_no_strong_signals ... ok
+test guard::tests::unknown_can_be_allowed_only_explicitly ... ok
+test guard::tests::truncated_scan_never_allows_a_non_malicious_file ... ok
+test hash::tests::import_fingerprint_is_order_sensitive ... ok
+test hash::tests::hex_roundtrip ... ok
+test heuristics::tests::every_signal_carries_an_explanation ... ok
+test heuristics::tests::extension_spoof_is_flagged ... ok
+test heuristics::tests::masquerading_svchost_is_flagged ... ok
+test heuristics::tests::download_cradle_is_strong ... ok
+test heuristics::tests::double_extension_is_flagged ... ok
+test heuristics::tests::shadow_copy_command_is_definitive ... ok
+test heuristics::tests::ordinary_encoding_join_and_shell_object_are_not_obfuscation ... ok
+test heuristics::tests::module_manifest_cmdlet_lists_are_not_cradles_or_tampering ... ok
+test heuristics::tests::wide_strings_are_detected ... ok
+test heuristics::tests::real_defender_tampering_still_fires ... ok
+test pe::tests::checksum_of_zero_buffer_matches_formula ... ok
+test heuristics::tests::windows_system_root_is_recognised_and_other_directories_are_not ... ok
+test pe::tests::rejects_truncated_mz ... ok
+test pe::tests::rva_mapping_respects_sections ... ok
+test pe::tests::imports_parse_when_the_image_base_is_above_four_gigabytes ... ok
+test pe::tests::rejects_non_pe ... ok
+test pe::tests::thunk_conversion_accepts_rvas_and_virtual_addresses_only ... ok
+test engine::tests::random_buffers_never_panic ... ok
+test quarantine::tests::a_corrupt_wrapped_key_is_rejected_without_being_rewritten ... ok
+test engine::tests::an_xlsm_macro_sheet_is_flagged ... ok
+test quarantine::tests::checked_quarantine_refuses_a_changed_source_before_writing ... ok
+test engine::tests::an_ooxml_macro_dropper_is_flagged ... ok
+test quarantine::tests::a_new_key_file_is_dpapi_wrapped_and_reopens ... ok
+test quarantine::tests::copy_only_keeps_original ... ok
+test quarantine::tests::corrupted_entry_is_refused_before_creating_a_target ... ok
+test quarantine::tests::checked_quarantine_moves_matching_source ... ok
+test quarantine::tests::header_tampering_is_detected ... ok
+test quarantine::tests::legacy_raw_entries_without_new_metadata_still_restore ... ok
+test quarantine::tests::quarantine_refuses_a_protected_source_and_writes_nothing ... ok
+test quarantine::tests::opening_the_vault_completes_an_interrupted_restore ... ok
+test quarantine::tests::a_legacy_plaintext_key_is_upgraded_and_kept_as_backup ... ok
+test quarantine::tests::double_restore_and_restore_after_purge_are_not_found ... ok
+test quarantine::tests::recovery_cleans_an_index_after_a_completed_purge ... ok
+test quarantine::tests::recovery_indexes_an_orphaned_quarantine_entry ... ok
+test quarantine::tests::quarantine_preserves_alternate_streams_and_timestamps ... ok
+test quarantine::tests::recovery_completes_an_interrupted_restore ... ok
+test quarantine::tests::restore_never_overwrites ... ok
+test quarantine::tests::recovery_preserves_a_conflicting_restore_target ... ok
+test quarantine::tests::vault_and_key_get_a_protected_dacl ... ok
+test ranshield::tests::archiver_producing_unknown_extensions_escalates ... ok
+test ranshield::tests::archiver_writing_many_files_is_not_ransomware ... ok
+test ranshield::tests::backup_destruction_is_critical_even_for_signed_binary ... ok
+test ranshield::tests::benign_text_editing_stays_normal ... ok
+test ranshield::tests::decoy_touch_is_critical_and_suspends ... ok
+test ranshield::tests::extension_churn_and_entropy_escalate_together ... ok
+test ranshield::tests::honeyvault_deploys_and_identifies_decoys ... ok
+test ranshield::tests::window_expiry_prevents_permanent_penalty ... ok
+test rules::ac_equivalence_tests::dfa_and_failure_link_walk_agree ... ok
+test quarantine::tests::the_audit_chain_records_a_quarantine_removal ... ok
+test rules::tests::comments_are_ignored ... ok
+test rules::tests::count_operator_works ... ok
+test rules::tests::empty_ruleset_is_safe ... ok
+test rules::tests::filesize_and_entropy_conditions ... ok
+test rules::tests::fullword_prevents_substring_false_positive ... ok
+test quarantine::tests::verify_all_reports_integrity ... ok
+test quarantine::tests::truncated_entry_is_rejected ... ok
+test rules::ac_equivalence_tests::oversized_automaton_falls_back_without_a_dfa ... ok
+test rules::tests::rejects_bad_conditions ... ok
+test rules::tests::unknown_meta_key_is_an_error ... ok
+test rules::tests::wildcard_hex_matches_and_misses ... ok
+test rules::tests::parses_and_matches_text ... ok
+test rules::tests::wide_nocase_matches ... ok
+test quarantine::tests::roundtrip_quarantine_and_restore ... ok
+test safety::tests::a_policy_with_no_protected_paths_is_rejected ... ok
+test safety::tests::a_policy_cannot_unprotect_the_windows_system_trees ... ok
+test quarantine::tests::wrong_key_cannot_decrypt ... ok
+test quarantine::tests::restore_refuses_a_protected_destination ... ok
+test safety::tests::path_normalisation_folds_separators_dots_and_verbatim_prefixes ... ok
+test safety::tests::a_file_that_changed_after_the_scan_is_refused ... ok
+test safety::tests::an_invalid_policy_fails_closed ... ok
+test safety::tests::directories_are_never_removed_by_the_guard ... ok
+test safety::tests::a_path_cannot_escape_the_scope_with_dot_dot ... ok
+test safety::tests::protected_location_is_refused_and_the_file_survives ... ok
+test safety::tests::the_default_policy_protects_the_system_drive_trees ... ok
+test safety::tests::an_edited_audit_log_fails_verification_and_blocks_removal ... ok
+test safety::tests::restoring_into_a_protected_location_is_refused ... ok
+test safety::tests::the_guard_protects_its_own_policy_and_audit_files ... ok
+test safety::tests::the_audit_chain_records_allowed_refused_and_completed_outcomes ... ok
+test safety::tests::removing_a_middle_record_breaks_the_chain ... ok
+test scan::tests::excluded_roots_are_not_walked ... ok
+test scan::tests::cache_skips_unchanged_files ... ok
+test scan::tests::directory_scan_accounts_every_category ... ok
+test taxonomy::tests::evidence_reverse_lookup_and_name_classification ... ok
+test taxonomy::tests::has_exactly_190_sequential_entries ... ok
+test taxonomy::tests::markdown_has_a_row_per_category ... ok
+test taxonomy::tests::specific_coverage_is_never_claimed_without_evidence_or_tested_behaviour ... ok
+test taxonomy::tests::summary_adds_up ... ok
+test taxonomy::tests::unavailable_categories_are_labelled_unavailable ... ok
+test safety::tests::the_budget_stops_a_bulk_deletion ... ok
+test scan::tests::file_budget_stops_the_walk ... ok
+test threatdb::tests::forged_payload_cannot_reuse_signature ... ok
+test threatdb::tests::development_key_is_not_accepted_as_production ... ok
+test threatdb::tests::pinned_key_is_accepted_as_production ... ok
+test scan::tests::cancellation_stops_the_walk ... ok
+test threatdb::tests::engine_version_gate ... ok
+test taxonomy::tests::every_evidence_entry_exists_in_the_real_engine ... ok
+test threatdb::tests::policy_parses_and_rejects_bad_keys ... ok
+test threatdb::tests::runtime_load_fails_closed_without_a_policy ... ok
+test scan::tests::progress_callback_sees_counts ... ok
+test threatdb::tests::version_compare ... ok
+test threatdb::tests::tampered_payload_fails_hash_check ... ok
+test threatdb::tests::revoked_hash_is_not_returned ... ok
+test vba::tests::a_compound_file_without_vba_storage_has_no_modules ... ok
+test vba::tests::a_cache_only_module_is_reported_as_possible_stomping ... ok
+test vba::tests::a_missing_signature_is_rejected ... ok
+test threatdb::tests::tampered_signature_is_rejected ... ok
+test vba::tests::a_large_module_is_read_from_regular_sectors ... ok
+test vba::tests::a_performance_cache_before_the_source_is_skipped_and_counted ... ok
+test vba::tests::a_small_module_is_read_from_the_mini_stream ... ok
+test vba::tests::copy_tokens_expand_history ... ok
+test vba::tests::literal_chunks_round_trip ... ok
+test vba::tests::the_project_category_stream_is_skipped ... ok
+test vba::tests::corrupt_projects_never_panic ... ok
+test vba::tests::decompression_output_is_capped ... ok
+test winplatform::acl::tests::sddl_is_protected_and_grants_only_the_expected_principals ... ok
+test vba::tests::an_ooxml_package_yields_its_macro_module ... ok
+test winplatform::dpapi::tests::roundtrip_returns_the_same_bytes ... ok
+test vba::tests::truncated_chunk_is_rejected ... ok
+test vba::tests::the_project_size_cap_is_reported ... ok
+test winplatform::dpapi::tests::tampered_blob_is_rejected_not_panicking ... ok
+test winplatform::dpapi::tests::wrong_entropy_is_rejected ... ok
+test winplatform::filemeta::tests::stream_names_are_validated_not_concatenated_blindly ... ok
+test xlm::tests::a_biff5_macro_sheet_formula_is_decoded_as_text ... ok
+test xlm::tests::a_biff7_macro_sheet_formula_is_decoded_as_text ... ok
+test threatdb::tests::signs_verifies_and_loads ... ok
+test xlm::tests::a_legacy_array_constant_is_decoded_from_the_record_extra ... ok
+test xlm::tests::a_legacy_call_formula_is_decoded_with_its_arguments ... ok
+test xlm::tests::a_legacy_macro_sheet_formula_is_decoded_as_text ... ok
+test xlm::tests::a_legacy_workbook_reports_a_hidden_macro_sheet ... ok
+test xlm::tests::a_normal_legacy_worksheet_is_not_a_macro_sheet ... ok
+test xlm::tests::a_workbook_without_macrosheets_is_empty ... ok
+test xlm::tests::an_ooxml_macro_sheet_yields_its_formulas ... ok
+test xlm::tests::corrupt_inputs_never_panic ... ok
+test xlm::tests::an_unknown_legacy_function_is_reported_as_incomplete ... ok
+test xlm::tests::xml_entities_are_decoded_for_rule_matching ... ok
+test xlm::tests::the_formula_cap_is_reported ... ok
+test winplatform::filemeta::tests::file_times_roundtrip_through_set_file_time ... ok
+test winplatform::filemeta::tests::delete_by_handle_targets_the_open_object_not_a_replacement_path ... ok
+test winplatform::filemeta::tests::alternate_streams_roundtrip ... ok
+test rules::tests::matcher_is_linear_in_file_size ... ok
+test threatdb::tests::rollback_is_refused_without_force ... ok
+test quarantine::tests::passphrase_derivation_is_deterministic ... ok
+
+test result: ok. 232 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.54s
+
+     Running tests\extended_rules.rs (target\debug\deps\extended_rules-8b1fa976d712af5b.exe)
+
+running 5 tests
+test removing_the_corroborating_indicator_stops_the_rule ... ok
+test benign_negatives_do_not_fire_any_extended_rule ... ok
+test rules_fire_through_the_full_engine_with_a_verdict ... ok
+test every_extended_rule_has_a_positive_fixture_that_fires_it ... ok
+test injection_api_names_alone_do_not_convict_a_large_system_like_binary ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running tests\parser_fuzz_soak.rs (target\debug\deps\parser_fuzz_soak-20c585bae38304ba.exe)
+
+running 9 tests
+test write_coverage_fuzz_seeds ... ignored, writes fuzz/seeds; run explicitly when fixtures change
+test corrupt_containers_are_reported_not_clean ... ok
+test targeted_header_values_do_not_panic ... ok
+test archive_refuses_bombs_and_unsafe_names ... ok
+test concurrent_parsing_is_deterministic ... ok
+test zip_mutations_respect_limits ... ok
+test xlm_mutations_are_bounded ... ok
+test pe_mutations_are_total_and_bounded ... ok
+test vba_mutations_are_bounded ... ok
+
+test result: ok. 8 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.97s
+
+     Running tests\windows_os_files.rs (target\debug\deps\windows_os_files-7ab745928d96a981.exe)
+
+running 2 tests
+test kernel32_exports_are_not_malware_evidence ... ok
+test signed_system_binaries_are_not_convicted_by_api_names ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.82s
+
+     Running unittests src\lib.rs (target\debug\deps\service-64ef1363bddb257b.exe)
+
+running 1 test
+test supervisor::tests::backoff_grows_then_gives_up_then_recovers ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src\main.rs (target\debug\deps\litric_guard-b8d60523ce013634.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\e2e.rs (target\debug\deps\e2e-b278bb3086d708ae.exe)
+
+running 4 tests
+test corrupted_vault_object_is_never_restored ... ok
+test decoy_touch_is_reported_and_decoy_plus_backup_tamper_contains ... ok
+test ransomware_is_suspended_and_files_are_recovered_from_vault ... ok
+test periodic_snapshot_versions_new_files_skips_unchanged_and_freezes_on_incident ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.53s
+
+     Running unittests src\lib.rs (target\debug\deps\litric_monitor-40e6966fee944c31.exe)
+
+running 3 tests
+test tests::unc_paths_are_normalised ... ok
+test tests::windows_paths_compare_case_insensitively_and_ignore_the_extended_prefix ... ok
+test tests::a_sibling_with_the_same_prefix_is_not_excluded ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src\main.rs (target\debug\deps\litric_rtp-353af9c4183772f9.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\monitor_e2e.rs (target\debug\deps\monitor_e2e-b816fc25ae2cfa14.exe)
+
+running 9 tests
+test startup_refuses_missing_directories_and_empty_config ... ok
+test oversized_files_are_skipped_loudly_not_called_clean ... ok
+test a_benign_file_is_left_alone ... ok
+test a_dropped_test_malware_file_is_detected_quarantined_and_restorable ... ok
+test auto_quarantine_can_be_switched_off_and_the_file_is_then_only_reported ... ok
+test new_files_in_new_subdirectories_are_covered ... ok
+test a_file_written_in_pieces_is_scanned_only_once_complete ... ok
+test the_vault_inside_the_watched_tree_is_never_scanned_so_there_is_no_loop ... ok
+test queue_overflow_is_counted_and_reported_as_degraded_protection ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 34.44s
+
+     Running unittests src\lib.rs (target\debug\deps\litric_pipeline-53c2ad5221a96a1c.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\pipeline.rs (target\debug\deps\pipeline-b05b8d4af21eba3f.exe)
+
+running 14 tests
+test clamav_hash_signature_convicts_and_is_attributed_to_clamav ... ok
+test extended_signature_matches_and_unsupported_lines_are_reported_by_importer ... ok
+test archives_disclose_that_members_are_not_checked_by_imported_signatures ... ok
+test rule_module_results_are_kept_separate_and_gated_by_severity_and_confidence ... ok
+test pe_section_hash_uses_litric_pe_parser_facts ... ok
+test native_detection_stands_without_any_signature_database ... ok
+test a_valid_signature_never_removes_a_detection ... ok
+test scan_path_refuses_symlinks_directories_and_oversized_files ... ok
+test a_tampered_signature_raises_an_otherwise_unknown_file_to_suspicious ... ok
+test benign_file_is_unknown_never_clean_and_never_quarantined ... ok
+test unsigned_unknown_pe_is_not_treated_as_malware ... ok
+test without_a_trust_provider_the_signature_field_is_none ... ok
+test an_unsigned_file_and_a_benign_rejection_are_not_treated_as_malware ... ok
+test threats_are_classified_against_the_taxonomy_with_their_basis ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s
+
+     Running unittests src\lib.rs (target\debug\deps\litric_safeos-fa8f75e5d67d896c.exe)
+
+running 64 tests
+test broker::tests::oversized_files_are_refused ... ok
+test governor::tests::a_constrained_host_is_reduced_with_a_reason ... ok
+test broker::tests::export_outside_staging_is_refused ... ok
+test governor::tests::a_good_host_allows_a_bounded_sandbox ... ok
+test governor::tests::a_missing_cpu_count_is_refused ... ok
+test governor::tests::a_second_heavy_session_is_refused ... ok
+test governor::tests::an_oversized_vcpu_request_is_reduced ... ok
+test governor::tests::low_disk_refuses_without_deleting_anything ... ok
+test governor::tests::json_reports_the_decision_it_made ... ok
+test governor::tests::the_hyperv_plan_respects_the_vm_ram_ceiling ... ok
+test governor::tests::malicious_is_refused_for_every_backend ... ok
+test governor::tests::unknown_facts_are_refused_instead_of_guessed ... ok
+test broker::tests::import_copies_and_verifies_without_touching_the_source ... ok
+test broker::tests::traversal_and_ads_names_are_rejected ... ok
+test broker::tests::existing_destination_is_refused_without_approval ... ok
+test journal::tests::invalid_session_ids_are_rejected ... ok
+test model::tests::enterprise_24h2_uses_its_own_end_date ... ok
+test model::tests::existing_nat_blocks_gateway_but_not_offline_sandbox ... ok
+test model::tests::expired_24h2_is_rejected_with_lifecycle_reason ... ok
+test model::tests::failed_nat_query_blocks_gateway_instead_of_assuming_zero ... ok
+test model::tests::good_host_is_usable ... ok
+test model::tests::json_facts_parse_and_default_to_unavailable ... ok
+test model::tests::low_disk_blocks_vm_but_allows_sandbox ... ok
+test model::tests::low_ram_disables_isolation_instead_of_risking_the_host ... ok
+test model::tests::missing_sandbox_feature_is_a_named_blocker ... ok
+test model::tests::supported_25h2_and_26h2_builds_are_accepted ... ok
+test model::tests::unknown_build_is_not_accepted_by_a_numeric_floor ... ok
+test model::tests::unknown_facts_make_everything_unavailable ... ok
+test broker::tests::scan_gate_rejection_leaves_destination_absent_and_staging_intact ... ok
+test model::tests::unsupported_host_facts_cannot_claim_isolation_backends ... ok
+test policy::tests::malicious_is_blocked_regardless_of_backends ... ok
+test policy::tests::only_trusted_runs_on_host ... ok
+test policy::tests::suspicious_never_falls_back_to_sandbox_or_host ... ok
+test policy::tests::suspicious_with_hyperv_but_no_gateway_is_offline_vm ... ok
+test policy::tests::unknown_uses_sandbox_when_available ... ok
+test policy::tests::unknown_without_backends_is_denied_not_run_on_host ... ok
+test risk::tests::malicious_beats_allowlist ... ok
+test risk::tests::malicious_hash_is_level_three ... ok
+test risk::tests::suspicious_verdict_is_level_two ... ok
+test risk::tests::unknown_unsigned_app_is_level_one_not_malicious ... ok
+test risk::tests::unvalidated_signature_never_grants_trust ... ok
+test risk::tests::validated_chain_plus_allowlist_is_trusted ... ok
+test journal::tests::corrupt_lines_are_counted_not_fatal ... ok
+test journal::tests::a_running_session_that_never_finished_is_a_recovery_case ... ok
+test broker::tests::export_commits_a_verified_copy ... ok
+test sandbox::tests::configuration_disables_networking_and_all_redirection ... ok
+test sandbox::tests::launch_capability_is_compiled_in ... ok
+test sandbox::tests::mapped_folders_are_read_only ... ok
+test broker::tests::approved_overwrite_replaces_the_file ... ok
+test sandbox::tests::a_report_without_a_cpu_count_is_refused ... ok
+test sandbox::tests::drive_roots_and_user_profiles_are_refused_before_access ... ok
+test sandbox::tests::missing_feature_refuses_launch ... ok
+test sandbox::tests::refuses_to_map_a_whole_drive ... ok
+test sandbox::tests::refuses_to_map_a_user_profile ... ok
+test journal::tests::cleanup_is_idempotent_and_only_touches_session_dirs ... ok
+test sandbox::tests::sandbox_memory_comes_from_the_resource_governor ... ok
+test sandbox::tests::verbatim_host_paths_are_rewritten_for_the_wsb ... ok
+test sandbox::tests::xml_special_characters_are_escaped ... ok
+test sandbox::tests::prepare_writes_a_locked_down_config_and_never_executes ... ok
+test sandbox::tests::a_constrained_host_gets_a_reduced_plan_not_a_refusal ... ok
+test sandbox::tests::unknown_facts_refuse_launch_before_any_process ... ok
+test sandbox::tests::underpowered_host_refuses_launch ... ok
+test journal::tests::state_transitions_are_recorded_in_order ... ok
+test sandbox::tests::reserved_device_names_are_refused ... ok
+
+test result: ok. 64 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running unittests src\lib.rs (target\debug\deps\litric_service-46f08d772388e02c.exe)
+
+running 41 tests
+test api::tests::ranshield_decoy_ingestion_is_critical ... ok
+test api::tests::readiness_gate_refuses_to_claim_ready ... ok
+test api::tests::safeos_assess_surfaces_lifecycle_expired_build ... ok
+test api::tests::quarantine_api_defaults_to_copy_and_never_deletes_the_original ... ok
+test api::tests::safeos_assess_trusts_an_allowlisted_chain_valid_entry ... ok
+test api::tests::quarantine_http_errors_are_actionable ... ok
+test api::tests::purge_requires_confirmation ... ok
+test api::tests::scan_rejects_missing_path ... ok
+test jobs::tests::cancelling_unknown_job_reports_false ... ok
+test jobs::tests::create_get_and_cancel ... ok
+test jobs::tests::profiles_change_limits ... ok
+test api::tests::scan_job_runs_and_reports_detection ... ok
+test api::tests::quarantine_add_list_restore ... ok
+test api::tests::settings_are_persisted ... ok
+test store::tests::corrupt_settings_fall_back_to_defaults ... ok
+test api::tests::unknown_route_is_404 ... ok
+test api::tests::status_never_claims_protection ... ok
+test store::tests::validation_rejects_absurd_retention ... ok
+test tests::token_comparison_is_exact ... ok
+test winsvc::tests::access_denied_message_tells_the_operator_to_elevate ... ok
+test tests::token_file_is_created_once_and_reused ... ok
+test winsvc::tests::command_line_omits_trailing_space_without_args ... ok
+test winsvc::tests::command_line_quotes_paths_with_spaces ... ok
+test winsvc::tests::dry_run_plan_includes_crash_recovery ... ok
+test winsvc::tests::dry_run_plan_never_mentions_defender_configuration ... ok
+test winsvc::tests::error_classification_matches_the_scm_codes ... ok
+test winsvc::tests::installed_command_line_ends_with_run_service ... ok
+test winsvc::tests::program_data_dir_is_under_program_data ... ok
+test winsvc::tests::querying_an_absent_service_is_classified ... ok
+test winsvc::tests::acl_hardening_leaves_the_owner_able_to_use_the_path ... ok
+test server::tests::refuses_non_loopback_bind ... ok
+test winsvc::tests::state_names_cover_every_scm_state ... ok
+test winsvc::tests::service_log_appends_and_never_writes_the_token ... ok
+test winsvc::tests::utc_format_matches_known_instants ... ok
+test server::tests::rejects_missing_token_and_accepts_valid_one ... ok
+test api::tests::safeos_assess_does_not_trust_tampered_or_unsigned_input ... ok
+test store::tests::settings_roundtrip_and_reload ... ok
+test winsvc::tests::stop_token_wakes_a_waiter ... ok
+test winsvc::tests::stop_token_times_out_without_a_request ... ok
+test api::tests::scan_auto_quarantines_only_malicious_and_is_repeatable ... ok
+test store::tests::history_is_capped ... ok
+
+test result: ok. 41 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.11s
+
+     Running unittests src\main.rs (target\debug\deps\litricd-b2010177c5e2453e.exe)
+
+running 3 tests
+test tests::run_service_defaults_to_monitor_not_enforce ... ok
+test tests::serve_defaults_to_gate_off ... ok
+test tests::enforce_is_opt_in ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src\lib.rs (target\debug\deps\litric_wintrust-ce3fe4422e557981.exe)
+
+running 3 tests
+test tests::a_missing_file_is_an_error ... ok
+test tests::result_codes_are_classified_honestly ... ok
+test tests::an_unsigned_text_file_has_no_embedded_signature ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running unittests src\lib.rs (target\debug\deps\litric_yara-bd78494dcd20eec6.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\yara.rs (target\debug\deps\yara-e3b9bc44597edf86.exe)
+
+running 8 tests
+test empty_rule_set_is_disclosed_not_treated_as_clean ... ok
+test labelled_high_severity_rule_convicts_through_the_pipeline ... ok
+test oversized_input_is_reported_not_scanned ... ok
+test rules_without_metadata_get_conservative_defaults_and_cannot_convict_alone ... ok
+test string_hex_regex_and_boolean_conditions_match ... ok
+test identical_rule_names_in_different_files_do_not_collide ... ok
+test directory_loading_accepts_yar_and_yara_and_reports_every_rejection ... ok
+test a_pathological_rule_hits_the_timeout_and_is_reported ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.09s
+
+     Running unittests src\lib.rs (target\debug\deps\peanalysis-9d8316ab669bcb81.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\pe.rs (target\debug\deps\pe-dd2575b8a7441e24.exe)
+
+running 12 tests
+test builder_output_parses_correctly_for_32_and_64_bit ... ok
+test non_pe_input_returns_none ... ok
+test declared_section_count_and_import_counts_are_capped ... ok
+test single_category_cannot_reach_suspicious_even_when_raw_score_is_high ... ok
+test packer_style_binary_is_suspicious_with_explanations ... ok
+test corroboration_from_a_second_category_makes_it_suspicious ... ok
+test ransomware_like_combination_across_three_categories ... ok
+test ordinary_program_scores_zero ... ok
+test strings_match_utf16_and_ignore_case ... ok
+test signature_blob_is_reported_but_never_lowers_the_score ... ok
+test every_truncation_point_is_handled ... ok
+test mutation_fuzz_never_panics_and_stays_fast ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.67s
+
+     Running unittests src\lib.rs (target\debug\deps\processgate-191d601ab16a40b6.exe)
+
+running 12 tests
+test tests::mode_parsing_is_explicit_and_rejects_garbage ... ok
+test tests::policy_table_is_explicit ... ok
+test tests::protected_set_handles_case_and_separators ... ok
+test windows::tests::image_path_of_this_process_is_an_exe ... ok
+test windows::tests::protected_roots_include_the_windows_directory ... ok
+test tests::only_an_exact_hash_match_can_be_blocked ... ok
+test windows::tests::ancestors_include_a_parent_when_present ... ok
+test tests::protected_paths_are_skipped_before_suspension ... ok
+test tests::monitor_mode_reports_but_resumes ... ok
+test tests::baseline_processes_are_never_touched ... ok
+test windows::tests::snapshot_contains_this_process ... ok
+test tests::a_failed_suspend_never_kills_and_is_counted ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running unittests src\bin\litric-pgate-selftest.rs (target\debug\deps\litric_pgate_selftest-86526d3245e97ba0.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\gate_e2e.rs (target\debug\deps\gate_e2e-8f41cade7a993c3c.exe)
+
+running 4 tests
+test a_benign_image_is_resumed_not_killed ... ok
+test enforce_hash_terminates_a_listed_image_and_resume_leaves_it_alone ... ok
+test protected_paths_are_never_suspended ... ok
+test suspend_freezes_and_resume_lets_the_process_finish ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 13.05s
+
+     Running unittests src\lib.rs (target\debug\deps\quarantine-31fe35de3d340927.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\q.rs (target\debug\deps\q-607fc89c409f1540.exe)
+
+running 6 tests
+test path_traversal_ids_are_rejected ... ok
+test corrupted_blob_is_detected_and_never_restored ... ok
+test move_removes_original_only_after_verification_then_restores_to_original_path ... ok
+test copy_only_keeps_original_and_restore_is_exact_and_never_overwrites ... ok
+test audit_log_detects_edits_and_deletions ... ok
+test duplicates_share_one_blob_and_purge_needs_authorization_and_keeps_shared_data ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running unittests src\lib.rs (target\debug\deps\ransomshield-7004e30984fc3c32.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\behavior.rs (target\debug\deps\behavior-b1e5276e4db45066.exe)
+
+running 6 tests
+test canary_plus_backup_tamper_contains ... ok
+test entropy_bounds ... ok
+test trusted_process_is_not_contained_but_keeps_evidence ... ok
+test window_expires_old_events ... ok
+test archiver_high_entropy_new_files_not_contained ... ok
+test ransomware_like_behavior_is_contained ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src\lib.rs (target\debug\deps\realtime-59ef9bb6fec3474a.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\pipeline.rs (target\debug\deps\pipeline-70c7325f41c56a6a.exe)
+
+running 3 tests
+test queue_overflow_is_counted_and_reported_degraded ... ok
+test attributed_ransomware_is_suspended_once ... ok
+test unattributed_activity_alerts_but_is_never_contained ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests\sampler.rs (target\debug\deps\sampler-19e3cbfdc626cf8e.exe)
+
+running 2 tests
+test tamper_classifier_flags_destructive_and_ignores_benign ... ok
+test fs_sampler_distinguishes_text_from_random_and_handles_missing ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src\lib.rs (target\debug\deps\recovery-e2d5bc4267ba9b83.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src\lib.rs (target\debug\deps\scanner-1594471470f649bf.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src\main.rs (target\debug\deps\litric_scan-b13688566f0457de.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\clamav.rs (target\debug\deps\clamav-303fa2da5382c2f7.exe)
+
+running 6 tests
+test legacy_digests_are_computed_only_when_the_database_needs_them ... ok
+test clamav_fp_allowlist_overrides_a_detection ... ok
+test eicar_matches_the_real_clamav_style_md5_entry_and_requires_exact_size ... ok
+test sha1_and_sha256_file_hashes_match_and_size_must_agree ... ok
+test overlapping_section_amplification_is_bounded_and_reported_incomplete ... ok
+test pe_section_hash_signature_detects_the_pe_and_not_other_files ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests\cli.rs (target\debug\deps\cli-b8950c934cf85632.exe)
+
+running 7 tests
+test incomplete_scan_exits_2 ... ok
+test benign_directory_exits_0_but_never_claims_safety ... ok
+test empty_database_exits_3 ... ok
+test suspicious_pe_exits_4_with_reasons ... ok
+test tampered_database_exits_3_even_if_the_file_would_have_been_detected ... ok
+test detection_exits_1_and_quarantine_copy_then_move_behave ... ok
+test binary_database_works_through_the_cli_and_tampering_is_exit_3 ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+     Running tests\ldb.rs (target\debug\deps\ldb-d9cb83dab408b69b.exe)
+
+running 10 tests
+test logical_and_extended_rules_report_together_with_their_methods ... ok
+test constraint_filters_limit_work_and_rules_apply_independently_per_file ... ok
+test a_rule_needs_at_least_one_matching_subsignature_even_if_its_expression_is_true_at_zero ... ok
+test target_types_apply_to_the_whole_rule ... ok
+test per_subsignature_offsets_and_pe_relative_offsets ... ok
+test and_or_and_parentheses_over_subsignatures ... ok
+test match_count_conditions_count_every_start_position ... ok
+test file_size_and_section_count_constraints ... ok
+test clamav_ldb_through_import_binary_sign_install_scan ... ok
+test logical_rule_flooding_is_budgeted_and_reported_incomplete ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.63s
+
+     Running tests\ndb.rs (target\debug\deps\ndb-0e74bc45c094cddb.exe)
+
+running 12 tests
+test exact_bytes_anywhere ... ok
+test byte_and_nibble_wildcards ... ok
+test alternatives_of_different_lengths ... ok
+test absolute_offset_maxshift_and_eof ... ok
+test two_rules_sharing_an_anchor_both_report_and_repeats_report_once ... ok
+test clamav_ndb_eicar_through_import_sign_install_scan ... ok
+test gaps_and_any ... ok
+test target_types_filter_by_detected_file_kind ... ok
+test anchors_of_2_3_4_and_longer_bytes_all_find_candidates_at_any_position ... ok
+test pe_entry_point_and_section_offsets_use_the_parsed_pe ... ok
+test pathological_backtracking_is_budgeted_and_reported_incomplete ... ok
+test many_rules_over_random_data_finish_within_budget_and_find_the_planted_one ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.36s
+
+     Running tests\scan.rs (target\debug\deps\scan-dc83a678de669f29.exe)
+
+running 16 tests
+test empty_file_is_handled ... ok
+test duplicate_matches_of_one_rule_report_once ... ok
+test hash_rule_detects_and_allowlist_overrides ... ok
+test eicar_is_detected_inside_larger_data ... ok
+test directory_depth_limit_is_reported_and_counters_add_up ... ok
+test cancellation_stops_and_marks_incomplete ... ok
+test empty_or_missing_database_warns_loudly ... ok
+test missing_path_is_an_error_not_clean ... ok
+test progress_callback_reports_every_file ... ok
+test revoked_rule_is_not_applied ... ok
+test known_signature_takes_precedence_over_heuristics_and_keeps_risk_data ... ok
+test packer_style_pe_is_suspicious_not_detected_and_benign_pe_is_not_flagged ... ok
+test target_filter_applies_to_detected_file_kind ... ok
+test pattern_spanning_the_1mib_read_chunk_boundary_is_found ... ok
+test oversize_file_is_unscannable_not_clean_and_report_is_incomplete ... ok
+test hash_rule_still_catches_oversize_files ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.59s
+
+     Running unittests src\lib.rs (target\debug\deps\sigdb-a1647335e855e167.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src\bin\sigtool.rs (target\debug\deps\sigtool-2bdf1bdfa0862b4f.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\binary.rs (target\debug\deps\binary-03188a35ac34a4f9.exe)
+
+running 14 tests
+test empty_database_round_trips ... ok
+test round_trip_preserves_every_record_type ... ok
+test signed_file_with_an_unlocatable_extended_signature_is_rejected ... ok
+test control_forgery_without_changes_loads ... ok
+test install_file_streams_from_disk_for_binary_and_text ... ok
+test signed_files_with_malformed_headers_are_rejected ... ok
+test signed_files_with_malformed_support_sections_are_rejected ... ok
+test signed_files_with_malformed_extended_signatures_are_rejected ... ok
+test signed_files_with_malformed_tables_are_rejected ... ok
+test signed_files_with_malformed_logical_signatures_are_rejected ... ok
+test store_installs_binary_streams_it_back_and_enforces_rollback_and_tamper_rules ... ok
+test binary_is_smaller_than_text_and_loads_identically_at_scale ... ok
+test structural_mutation_fuzz_never_panics ... ok
+test signature_covers_the_header_and_hashes_cover_every_section ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 20.67s
+
+     Running tests\ldb.rs (target\debug\deps\ldb-4a76f293c987ce1c.exe)
+
+running 4 tests
+test expressions_parse_and_evaluate ... ok
+test target_blocks_and_constraints ... ok
+test ldb_records_load_and_are_validated ... ok
+test unsupported_and_malformed_expressions_are_classified ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\ndb.rs (target\debug\deps\ndb-740ddf47252cd9c3.exe)
+
+running 10 tests
+test hex_tokens_wildcards_and_masks ... ok
+test anchor_skips_masked_bytes_and_stops_at_first_gap ... ok
+test gaps_any_and_alternatives ... ok
+test locatable_requires_anchor_or_exact_offset ... ok
+test bytecode_roundtrips_validates_and_agrees_with_the_token_anchor ... ok
+test malformed_syntax_is_rejected ... ok
+test ndb_records_load_validate_and_count ... ok
+test offsets_parse_all_supported_forms_and_flag_the_rest ... ok
+test unsupported_syntax_is_classified_not_accepted ... ok
+test malformed_bytecode_is_rejected_without_panicking ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests\sigdb.rs (target\debug\deps\sigdb-c8d2a8c81f3c64b5.exe)
+
+running 10 tests
+test v2_records_are_rejected_in_v1_and_malformed_v2_records_are_rejected ... ok
+test malformed_databases_are_rejected_whole ... ok
+test revocation_removes_rules_and_allowlist_loads ... ok
+test v2_hash_tables_lookup_by_algorithm_digest_and_exact_size ... ok
+test valid_database_parses ... ok
+test v2_revocation_removes_compact_rules ... ok
+test signature_good_tampered_wrong_key_revoked ... ok
+test v2_bundle_signs_and_installs_like_v1 ... ok
+test tampered_active_bundle_and_corrupt_floor_are_detected ... ok
+test install_rejects_rollback_reuse_and_unsigned_and_is_idempotent ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
+   Doc-tests clamav_import
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests honeyvault
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests litric_agent
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests litric_cli
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests litric_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests service
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests litric_monitor
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests litric_pipeline
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests litric_safeos
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests litric_service
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests litric_wintrust
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests litric_yara
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests peanalysis
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests processgate
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests quarantine
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests ransomshield
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests realtime
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests recovery
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests scanner
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests sigdb
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

@@ -1,0 +1,9 @@
+[package]
+name = "quarantine"
+version = "0.1.0"
+edition = "2021"
+description = "Litric quarantine: verified copy, hash-checked restore, deduplication, tamper-evident audit log"
+license = "LicenseRef-Proprietary"
+
+[dependencies]
+sha2 = "0.10"

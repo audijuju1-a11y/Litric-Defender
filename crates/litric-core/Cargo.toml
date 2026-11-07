@@ -7,6 +7,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+memchr = "2"
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
@@ -14,5 +15,23 @@ getrandom.workspace = true
 chacha20poly1305.workspace = true
 argon2.workspace = true
 ed25519-dalek.workspace = true
+zip.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Security_Cryptography",
+    "Win32_Storage_FileSystem",
+] }
+
+[target.'cfg(windows)'.dev-dependencies]
+# Test-only process memory probe; not enabled in production builds.
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Threading",
+] }
 
 [dev-dependencies]

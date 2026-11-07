@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use litric_core::scan::{ScanLimits, ScanSummary};
+use litric_core::scan_quarantine::ScanQuarantineReport;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JobState {
@@ -51,6 +52,8 @@ pub struct Job {
     pub finished_unix: Option<u64>,
     pub error: Option<String>,
     pub summary: Option<ScanSummary>,
+    /// Present only when the caller requested scan-time quarantine.
+    pub quarantine: Option<ScanQuarantineReport>,
 }
 
 impl Job {
@@ -102,6 +105,7 @@ impl JobManager {
             finished_unix: None,
             error: None,
             summary: None,
+            quarantine: None,
         };
         let flag = Arc::new(AtomicBool::new(false));
         if let Ok(mut jobs) = self.jobs.lock() {

@@ -1,0 +1,16 @@
+[package]
+name = "litric-yara"
+description = "Optional YARA rule module for the Litric pipeline. Uses the external yara-x engine (VirusTotal, BSD-3-Clause); the engine is NOT Litric-written code."
+version.workspace = true
+edition.workspace = true
+rust-version = "1.95"
+license.workspace = true
+
+[dependencies]
+litric-pipeline = { path = "../litric-pipeline" }
+sigdb = { path = "../sigdb" }
+yara-x = { version = "1", default-features = false }
+
+[dev-dependencies]
+clamav-import = { path = "../clamav-import" }
+litric-core = { path = "../litric-core" }

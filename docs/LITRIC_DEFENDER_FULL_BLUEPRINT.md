@@ -4,7 +4,7 @@
 
 **Date:** 2026-11-03
 
-**Status:** `DESIGNED` decision document with two portable correctness fixes implemented and tested in the working tree. Native Windows execution, the installer, SCM service, kernel/ETW/AMSI/WFP work, and independent validation remain `UNPROVEN` or `NOT_IMPLEMENTED`; no system setting, driver, or external service was changed.
+**Status:** `DESIGNED` decision document. The scanner, quarantine and on-demand scan-time quarantine are implemented and tested natively on Windows 11. The installer, SCM service, kernel/ETW/AMSI/WFP work, and independent validation remain `NOT_IMPLEMENTED` or externally `BLOCKED`; no system setting, driver, or external service was changed.
 
 **Scope:** Windows 11 x64, original Litric detection and product workflows, local-first operation, coexistence with Microsoft Defender.
 
@@ -53,7 +53,7 @@ This is narrower than “beat Defender,” but it is defensible with the code th
 
 1. The portable core is real: PE parsing, Litric Rule Syntax, 30+ heuristics, explicit `Unknown`, encrypted journaled quarantine, signed threat DB, RansomShield decision logic, CLI, and loopback daemon are implemented and tested. `[FACT]` `[E-01]`–`[E-08]`
 2. The installed-product layer is absent: no installer, SCM service, native UI, ETW consumer, AMSI provider, WFP policy, minifilter, production update channel, or production signing key. `[FACT]` `[E-03]` `[E-09]`
-3. The portable suite is green (210/210 on Linux after this pass), but the Windows claims are unproven: the last recorded Wine 11.21 run was 195/195 before these tests were added, 8 tests are excluded, and native Windows 11/NTFS/Sandbox execution remains `UNPROVEN`. `[FACT]` `[E-02]`
+3. The scanner and safety core run natively on Windows 11: the full workspace suite is 597/597 (568 before the Phase 0/1 fixes) with no excluded tests, and 1,370 benign OS files produced zero malicious or suspicious verdicts. The enforcement and guest layers remain partial or unproven: a user-mode process gate exists but is opt-in and not pre-execution, there is no installer, no kernel sensor, and no Sandbox guest has ever started (the development host is Windows 11 Home, which has no Sandbox or Hyper-V). `[FACT]` `[E-02]` `[E-07]`
 4. Kernel, ELAM, PPL, and Windows Security Center are not ordinary backlog items. MVI requires a commercially available real-time product with independent certification; ELAM additionally requires MVI and WHQL. That is a circular late-stage gate for a pre-launch product. `[SOURCE]` `[S5]` `[S6]`
 5. Windows Sandbox is not universal: it is supported on Pro, Enterprise, Pro Education/SE, and Education, but **not Windows Home**, and its default configuration enables networking and clipboard redirection. SafeOS must be an explicit, supported-edition feature, not “all Windows 11 PCs.” `[SOURCE]` `[S2]` `[S3]` `[S4]`
 6. Detection alone is a poor wedge against incumbents with decades of content, distribution, and lab history. Transactional quarantine, explainable evidence, and tested recovery are more differentiated and more honest. `[JUDGMENT]`
@@ -62,7 +62,7 @@ This is narrower than “beat Defender,” but it is defensible with the code th
 
 | Order | Work package | Why first | Exit evidence |
 |---|---|---|---|
-| 1 | **Native Windows 11 lab and proof harness** | Every Windows claim is currently unproven; Wine cannot substitute | Native build/test matrix on 25H2 and 26H2; NTFS restore tests; crash recovery |
+| 1 | **Windows 11 lab and proof harness** | The scanner runs natively, but the guest boundary needs a Pro host with virtualization | Test matrix on supported builds; NTFS restore tests; crash recovery |
 | 2 | **Installable product skeleton** | A scanner users cannot install is not a product | Signed development installer, SCM service, named-pipe IPC, WinUI 3 shell, clean uninstall/rollback |
 | 3 | **Trustworthy scanning and recovery** | The defensible wedge must be operationally excellent | Parser isolation, fuzzing, corpus/FP baseline, production key path, protected-folder versioning, restore verification |
 | 4 | **User-mode visibility** | Adds value without pretending to enforce | ETW process/file telemetry with loss accounting, AMSI provider, WFP policy; no blocking claim |
@@ -70,8 +70,8 @@ This is narrower than “beat Defender,” but it is defensible with the code th
 
 ### Top risks
 
-- No native Windows evidence; the current “Windows” result is a Wine ABI result. `[FACT]`
-- No installer, service host, or UI; the product cannot be deployed. `[FACT]`
+- No installable product and no enforceable real-time control; scanning is native and tested, but the product cannot be deployed as an always-on antivirus. `[FACT]`
+- SafeOS isolation is unverifiable on the development host (Windows 11 Home, virtualization disabled, no Sandbox feature). `[FACT]`
 - No enforceable real-time control; “protection” would be false. `[FACT]`
 - False positives and `Unknown` verdicts can destroy trust faster than a missed detection. `[JUDGMENT]`
 - MVI/ELAM/WSC and kernel enforcement are externally gated and may never be attainable for this team. `[SOURCE]` `[S5]` `[S6]`
@@ -130,15 +130,15 @@ This is narrower than “beat Defender,” but it is defensible with the code th
 
 | ID | Claim or decision | Type | Evidence | What it proves | What it does not prove | Confidence |
 |---|---|---|---|---|---|---|
-| E-01 | Portable detection, rules, heuristics, verdict aggregation are implemented and tested | `[FACT]` | `README.md`, `docs/STATUS.md`, `crates/litric-core`, native suite | Code exists and passes repository tests on Linux | Native Windows behaviour or competitive detection | HIGH |
-| E-02 | Portable suite 210/210 on Linux after this pass; last recorded Windows-target run was 195/195 under Wine 11.21 before these tests were added; 8 excluded | `[FACT]` | `cargo test --workspace`; `docs/WINDOWS_WINE_TESTING.md`; `WINDOWS_WINE_TEST_EVIDENCE.txt` | Portable and Wine ABI paths mostly execute | Native Windows, NTFS, Sandbox guest, excluded paths; Wine run not repeated | HIGH for the portable run; LOW for Windows support |
-| E-03 | No installer, SCM service, native UI, ETW, AMSI, WFP, minifilter, ELAM/PPL/WSC | `[FACT]` | `docs/STATUS.md`, `docs/LIMITATIONS.md`, source tree | Those layers are absent | Whether they can be built later | HIGH |
-| E-04 | Quarantine lifecycle is journaled, encrypted, verify-before-remove, no-clobber restore | `[FACT]` | `crates/litric-core/src/quarantine.rs`, tests | Portable lifecycle and crash reconciliation work on Linux | NTFS/Windows publish semantics, power-loss durability | HIGH for Linux; `UNPROVEN` for Windows |
+| E-01 | Detection, rules, heuristics, verdict aggregation are implemented and tested natively | `[FACT]` | `README.md`, `docs/STATUS.md`, `crates/litric-core`, `docs/WINDOWS_EVIDENCE.md` | Code exists and passes the native Windows suite | Competitive detection or enforceable protection | HIGH |
+| E-02 | Full workspace suite 597/597 (568 before the Phase 0/1 fixes) on Windows 11 x86_64, 57 test binaries of which 18 contain tests and 0 doctests, no excluded tests, Defender RTP off; detection fixtures and 1,370 benign OS files measured | `[FACT]` | `cargo test --workspace`; `docs/WINDOWS_EVIDENCE.md` | Native Windows execution, NTFS quarantine paths, detection and FP behaviour on that corpus | Lab-grade detection rate, other Windows builds, guest runtime | HIGH for this host; not a lab result |
+| E-03 | No installer, native UI, ETW, AMSI, WFP, minifilter, ELAM/PPL/WSC; SCM host exists but its elevated lifecycle is unproven | `[FACT]` | `docs/STATUS.md`, `docs/LIMITATIONS.md`, `docs/PROCESS_GATE.md`, source tree | Those layers are absent or partial | Whether they can be built later | HIGH |
+| E-04 | Quarantine lifecycle is journaled, encrypted, verify-before-remove, no-clobber restore | `[FACT]` | `crates/litric-core/src/quarantine.rs`, tests | Lifecycle and crash reconciliation work natively on Windows/NTFS | Power-loss durability of directory entries | HIGH for the tested lifecycle; `UNPROVEN` for power loss |
 | E-05 | Threat DB uses Ed25519, anti-rollback, revocation, atomic install; production key absent | `[FACT]` | `crates/litric-core/src/threatdb.rs`, `docs/LIMITATIONS.md` | Signed-content mechanism exists | Production key custody, rotation, distribution | HIGH |
 | E-06 | RansomShield scores behaviour and returns response requests; no enforcement | `[FACT]` | `crates/litric-core/src/ranshield.rs`, `docs/LIMITATIONS.md` | Decision logic is tested | Real sensor, blocking, suspend, isolate, snapshot | HIGH for decisions; role is decisions only |
 | E-07 | SafeOS has tested policy/broker/journal/config; Windows launch compiled but never executed natively; guest runtime `UNPROVEN` | `[FACT]` | `docs/SAFEOS_READINESS.md`, `docs/SAFEOS_WINDOWS_VERIFICATION.md` | Safety core and refusal paths work; runtime is not proven | Guest network/clipboard/read-only boundary, native launch | HIGH |
-| E-08 | Local daemon is loopback HTTP with bearer token; no SCM host | `[FACT]` | `crates/litric-service`, `docs/STATUS.md` | Development API works | Production IPC/ACL, Windows service security | HIGH |
-| E-09 | One narrow Windows-only `unsafe` FFI block calls `WinVerifyTrust`; no external network client | `[FACT]` | `crates/litric-service/src/lib.rs`; source/dependency audit | The block is confined to the platform verifier; the portable build does not execute it | Native FFI/memory-safety review; future dependencies and parser logic | HIGH for the portable tree; native block `UNPROVEN` |
+| E-08 | Local daemon is loopback HTTP with bearer token; SCM host implemented (auto-start, LocalSystem, ACL-hardened data dir) but an elevated install/start/stop cycle is unproven | `[FACT]` | `crates/litric-service`, `docs/PROCESS_GATE.md` | Development API and service code work; unelevated guards measured | Elevated SCM lifecycle, named-pipe IPC | HIGH |
+| E-09 | Narrow Windows-only `unsafe` FFI blocks call `WinVerifyTrust` (service) and DPAPI/DACL (core `winplatform`); no external network client | `[FACT]` | `crates/litric-service/src/lib.rs`, `crates/litric-core/src/winplatform.rs`; source/dependency audit | Blocks are confined to platform modules and unit-tested natively; no parser uses `unsafe` | Broader FFI/memory-safety review; future dependencies and parser logic | HIGH for the portable tree; native blocks tested but not formally reviewed |
 | E-10 | Windows 11 25H2/26H2 support dates; 24H2 Home/Pro ended 2026-10-14 | `[SOURCE]` | Microsoft Lifecycle `[S1]`; release information `[S15]` | Build lifecycle target | Feature/API availability on each build | HIGH |
 | E-11 | Windows Sandbox: Pro/Enterprise/Education only, not Home; 4 GB RAM/1 GB disk/2 cores; network/clipboard default on; one instance | `[SOURCE]` | Microsoft Learn `[S2]` `[S3]` `[S4]` | SafeOS cannot be universal | Actual guest behaviour on a specific host | HIGH |
 | E-12 | ELAM requires MVI + WHQL; MVI requires a shipping real-time product and independent certification | `[SOURCE]` | Microsoft Learn `[S5]` `[S6]` | Kernel/ELAM/WSC path is a late external gate | Whether Litric can ever qualify | HIGH |
@@ -152,6 +152,8 @@ This is narrower than “beat Defender,” but it is defensible with the code th
 | E-20 | No Litric independent lab result exists | `[UNKNOWN]` | Repository inspection | No comparative claim is permissible | Future performance | `UNKNOWN` |
 | E-21 | SafeOS build acceptance uses one Windows 11 lifecycle table with edition-specific end dates and an injectable date | `[FACT]` | `crates/litric-safeos/src/model.rs`; `model::tests::supported_25h2_and_26h2_builds_are_accepted`, `model::tests::expired_24h2_is_rejected_with_lifecycle_reason`, `model::tests::enterprise_24h2_uses_its_own_end_date`, `model::tests::unknown_build_is_not_accepted_by_a_numeric_floor` | 24H2 Home/Pro is rejected after 2026-10-14; 25H2/26H2 are accepted on 2026-11-03; unknown builds are not accepted by a numeric floor | Native execution on each build; LTSC/edition edge cases | HIGH for portable logic; native `UNPROVEN` |
 | E-22 | `safeos_assess` derives `signature_chain_valid` from a `SignatureVerifier`; the trusted allowlist path is reachable and tested | `[FACT]` | `crates/litric-service/src/lib.rs`; `crates/litric-service/src/api.rs`; `api::tests::safeos_assess_trusts_an_allowlisted_chain_valid_entry`, `api::tests::safeos_assess_does_not_trust_tampered_or_unsigned_input`; `risk::tests::validated_chain_plus_allowlist_is_trusted`, `risk::tests::unvalidated_signature_never_grants_trust` | The flag is no longer hard-coded; a trusted allowlist entry yields `trusted`, while tampered/unsigned input does not | Native `WinVerifyTrust` execution and certificate matrix | HIGH for plumbing; native verifier `UNPROVEN` |
+| E-23 | Pre-execution guard refuses malicious, suspicious, unknown and truncated files before spawning; malicious targets are quarantined | `[FACT]` | `crates/litric-core/src/guard.rs`; `crates/litric-cli/src/main.rs`; `guard::tests::*`; `guard_e2e::*` | A malicious target was quarantined and a canary proved no child ran; unknown blocked by default; explicit override runs | Only CLI launches through the guard; no Explorer/system-wide interception; scan-to-exec race narrowed, not eliminated | HIGH for the guard; system-wide protection `UNPROVEN` |
+| E-24 | On-demand scans can automatically quarantine `Malicious` files from a file path or recursive directory; `Clean` and `Unknown` are untouched; a failed move retains the source and exits 4 | `[FACT]` | `crates/litric-core/src/scan_quarantine.rs`; `crates/litric-cli/src/main.rs`; `scan_quarantine_e2e::*`; `api::tests::scan_auto_quarantines_only_malicious_and_is_repeatable` | Real-binary nested-folder test moved only the malicious file, proved the vault entry decrypts/hashes, left clean and unknown byte-identical, reran without crashing, and forced a failure that retained the source with exit 4; the suite runs natively on Windows 11/NTFS | Files created/downloaded after the walk, Explorer/service/scheduled-task launches, and real-time prevention are not covered; no ETW/AMSI/minifilter | HIGH for the on-demand pass on Windows/NTFS; real-time `UNPROVEN` |
 
 **Quantitative rule:** every number below is either a recorded measurement, a dated source, or marked `[TARGET]`. No target is a result.
 
@@ -163,30 +165,32 @@ This is narrower than “beat Defender,” but it is defensible with the code th
 
 | Capability | Status | Evidence | Platform | Gap / next proof |
 |---|---|---|---|---|
-| PE parser, imports/exports, resources, overlay, Rich header, TLS/CLR, flags | `TESTED` | `crates/litric-core/src/pe.rs`, tests | Linux | Native Windows corpus and malformed-input fuzzing |
-| Litric Rule Syntax and Aho–Corasick matcher (15 rules) | `TESTED` | `rules.rs`, `rules/core.lrs` | Linux | Larger authored ruleset; FP measurement; rule governance |
-| 30+ weighted heuristics and ATT&CK labels | `TESTED` | `heuristics.rs` | Linux | Independent efficacy study; avoid overfitting |
-| Verdict aggregation with explicit `Unknown` | `TESTED` | `engine.rs` | Linux | Calibrate thresholds on labelled corpus; UX for unknown |
-| SHA-256 hash reputation against signed DB | `TESTED` | `threatdb.rs` | Linux | No production feed; zero hash coverage by design |
-| Scan budgets, cache, honest counters, cancellation | `TESTED` | `scan.rs`, daemon E2E | Linux | Parallel workers; Windows file-ID dedupe; native path/ADS tests |
-| Encrypted quarantine, journal, verify, restore, purge | `TESTED` | `quarantine.rs`, 15 tests | Linux | NTFS no-clobber, ADS, ACL, power-loss, DPAPI key wrapping |
-| Ed25519 threat DB, anti-rollback, revocation, atomic install | `TESTED` | `threatdb.rs` | Linux | Production key ceremony, HSM, rotation, HTTPS distribution |
-| RansomShield scoring, decoys, response policy | `TESTED` (decisions) | `ranshield.rs` | Linux | ETW sensor, enforcement, real false-positive data |
-| Local HTTP/JSON daemon, CLI, auth, readiness gate | `TESTED` | `litric-service`, CLI E2E | Linux | SCM service, named pipe, Windows ACL, UI |
-| SafeOS host facts, risk, fail-closed policy, broker, journal, `.wsb` | `TESTED` / `PARTIALLY_IMPLEMENTED` | `litric-safeos` | Linux | Native launch and guest boundary; Hyper-V/gateway absent |
-| SafeOS build lifecycle allowlist | `TESTED` (portable) | `model.rs`, lifecycle tests | Linux | Native execution on each declared build/edition |
-| Authenticode trust plumbing (`safeos_assess`) | `TESTED` (portable); native `UNPROVEN` | `litric-service/src/lib.rs`, `api.rs`, API tests | Linux; Windows target compiles | Native `WinVerifyTrust` execution and certificate matrix |
+| PE parser, imports/exports, resources, overlay, Rich header, TLS/CLR, flags | `TESTED` | `crates/litric-core/src/pe.rs`, tests | Windows 11 | Malformed-input fuzzing; broader corpus |
+| Litric Rule Syntax and Aho–Corasick matcher (22 rules) | `TESTED` | `rules.rs`, `rules/core.lrs` | Windows 11 | Larger authored ruleset; FP measurement; rule governance |
+| 30+ weighted heuristics and ATT&CK labels | `TESTED` | `heuristics.rs` | Windows 11 | Independent efficacy study; avoid overfitting |
+| Verdict aggregation with explicit `Unknown` | `TESTED` | `engine.rs` | Windows 11 | Calibrate thresholds on labelled corpus; UX for unknown |
+| SHA-256 hash reputation against signed DB | `TESTED` | `threatdb.rs` | Windows 11 | No production feed; zero hash coverage by design |
+| Scan budgets, cache, honest counters, cancellation | `TESTED` | `scan.rs`, daemon E2E | Windows 11 | Parallel workers; Windows file-ID dedupe in the walker |
+| On-demand scan-time quarantine of malicious files from a file or recursive folder | `TESTED` | `scan_quarantine.rs`; `scan_quarantine_e2e.rs`; service repeat test | Windows 11 | Only files present during the walk; no ETW/AMSI/minifilter; no later-created/downloaded files |
+| Fail-closed pre-execution guard; malicious quarantine before spawn | `TESTED` | `guard.rs`; `guard_e2e.rs` | Windows 11 | Only CLI launches; no Explorer/system-wide interception |
+| Encrypted quarantine, journal, verify, restore, purge, ADS/timestamps | `TESTED` | `quarantine.rs`; `winplatform.rs`; CLI E2E | Windows 11 | Real power-loss; EAs/security descriptors/file attributes; restore temp-name race |
+| Ed25519 threat DB, anti-rollback, revocation, atomic install | `TESTED` | `threatdb.rs` | Windows 11 | Production key ceremony, HSM, rotation, HTTPS distribution |
+| RansomShield scoring, decoys, response policy | `TESTED` (decisions) | `ranshield.rs` | Windows 11 | ETW sensor, enforcement, real false-positive data |
+| Local HTTP/JSON daemon, CLI, auth, readiness gate | `TESTED` | `litric-service`, CLI E2E | Windows 11 | SCM service, named pipe, Windows ACL, UI |
+| SafeOS host facts, risk, fail-closed policy, broker, journal, `.wsb` | `TESTED` / `PARTIALLY_IMPLEMENTED` | `litric-safeos` | Windows 11 | Native launch and guest boundary; Hyper-V/gateway absent |
+| SafeOS build lifecycle allowlist | `TESTED` | `model.rs`, lifecycle tests | Windows 11 | Execution on each declared build/edition |
+| Authenticode trust plumbing (`safeos_assess`) | `TESTED` (portable); native `UNPROVEN` | `litric-service/src/lib.rs`, `api.rs`, API tests | Windows 11 | Native `WinVerifyTrust` execution and certificate matrix |
 | Native Windows runtime, installer, UI, ETW/AMSI/WFP, minifilter, ELAM/PPL/WSC | `NOT_IMPLEMENTED` / `BLOCKED` | `docs/STATUS.md` | — | Whole product layer; external signing/partner gates |
 
 ### 4.2 Critical audit findings
 
 1. **The product is not installable.** There is no installer, SCM service, native UI, or signed binary distribution. A user can build and run a CLI/daemon, not install protection. `[FACT]`
-2. **The Windows claim is not native.** Wine 11.21 is useful ABI evidence, but not Windows 11/NTFS/Sandbox evidence. The repository says this correctly; the blueprint must preserve it. `[FACT]`
-3. **No enforcement exists.** RansomShield actions are requests; there is no minifilter, process suspension, network isolation, or pre-write blocking. `[FACT]`
+2. **Native Windows execution is real; the guest boundary is not.** The suite and NTFS quarantine tests run on Windows 11 with no excluded tests. The SafeOS launch has never started a guest, and the development host is Home edition with virtualization disabled. `[FACT]`
+3. **No OS-wide enforcement exists.** RansomShield actions are requests; there is no minifilter, process suspension, network isolation, or pre-write blocking. `litric guard` can block and quarantine a launch made through the CLI, and an on-demand scan can quarantine malicious files it finds, but neither is Explorer/system-wide or real-time, and neither changes this finding. `[FACT]`
 4. **No Windows sensor exists.** ETW, AMSI, WFP, process/file provenance, and event-loss accounting are planned, not implemented. `[FACT]`
 5. **Build acceptance is lifecycle-driven (resolved in this pass).** `Readiness` no longer uses a bare 22000 floor. One `WINDOWS_11_RELEASES` table supplies build and edition end dates, and `Readiness::evaluate_at` takes an injectable date. A 24H2 Home/Pro report on 2026-11-03 is rejected with the end-of-support date; 25H2 and 26H2 are accepted. Exact tests: `model::tests::supported_25h2_and_26h2_builds_are_accepted`, `model::tests::expired_24h2_is_rejected_with_lifecycle_reason`, `model::tests::enterprise_24h2_uses_its_own_end_date`, `model::tests::unknown_build_is_not_accepted_by_a_numeric_floor`. Native execution on those builds remains `UNPROVEN`. `[FACT]` `[S1]`
 6. **Signature trust is verifier-driven (resolved in this pass).** `safeos_assess` no longer hard-codes `signature_chain_valid: false`; it consumes `SignatureVerifier`, whose production implementation calls `WinVerifyTrust` on Windows. Tests inject a deterministic verifier, so the documented trusted-allowlist path is reachable: `api::tests::safeos_assess_trusts_an_allowlisted_chain_valid_entry` yields `trusted`, while `api::tests::safeos_assess_does_not_trust_tampered_or_unsigned_input` does not. Native `WinVerifyTrust` execution remains `UNPROVEN`. `[FACT]`
-7. **The development API is not a production boundary.** It uses loopback HTTP and a bearer-token file; the token gets POSIX `0600` only on Unix. Windows ACLs, named pipes, and service identity are not implemented. `[FACT]`
+7. **The development API is not a production boundary.** It uses loopback HTTP and a bearer-token file; token-file ACL hardening, named pipes, and service identity are not implemented. `[FACT]`
 8. **Parsing runs in-process.** Rust and bounds-checked readers reduce memory-safety risk, but a parser logic bug or resource exhaustion still affects the daemon. Production needs parser workers with job-object limits and no network. `[JUDGMENT]`
 9. **No production content or key.** The distributed DB has rules only; `dev_signing_key()` is a public fixture key; hash reputation is intentionally zero. `[FACT]`
 10. **The security claim is honest but incomplete.** The engine says `Unknown` instead of `Clean`; that is a strength, but it makes UX, support, and customer expectations harder. `[JUDGMENT]`
@@ -203,11 +207,17 @@ This is narrower than “beat Defender,” but it is defensible with the code th
 | Defect | Change | Exact test evidence | Remaining limit |
 |---|---|---|---|
 | `safeos_assess` hard-coded `signature_chain_valid: false`, so the `Trusted` branch was unreachable | Added `SignatureVerifier`/`SignatureTrust`; `safeos_assess` derives the flag from the verifier; production uses `WinVerifyTrust`, tests inject a deterministic verifier | `api::tests::safeos_assess_trusts_an_allowlisted_chain_valid_entry`; `api::tests::safeos_assess_does_not_trust_tampered_or_unsigned_input`; `risk::tests::validated_chain_plus_allowlist_is_trusted`; `risk::tests::unvalidated_signature_never_grants_trust` | Native `WinVerifyTrust` execution and a signed/tampered/revoked certificate matrix are not run in this environment; the Windows target compiles |
-| `MIN_WINDOWS_BUILD = 22000` accepted 24H2 after end of support and rejected nothing by lifecycle | Replaced the bare floor with `WINDOWS_11_RELEASES` (build, Home/Pro end, Enterprise/Education end); `Readiness::evaluate_at` is deterministic and tests inject dates | `model::tests::supported_25h2_and_26h2_builds_are_accepted`; `model::tests::expired_24h2_is_rejected_with_lifecycle_reason`; `model::tests::enterprise_24h2_uses_its_own_end_date`; `model::tests::unknown_build_is_not_accepted_by_a_numeric_floor`; `api::tests::safeos_assess_surfaces_lifecycle_expired_build` | Native Windows build/edition execution and LTSC edge cases remain open; no Windows host is used |
+| `MIN_WINDOWS_BUILD = 22000` accepted 24H2 after end of support and rejected nothing by lifecycle | Replaced the bare floor with `WINDOWS_11_RELEASES` (build, Home/Pro end, Enterprise/Education end); `Readiness::evaluate_at` is deterministic and tests inject dates | `model::tests::supported_25h2_and_26h2_builds_are_accepted`; `model::tests::expired_24h2_is_rejected_with_lifecycle_reason`; `model::tests::enterprise_24h2_uses_its_own_end_date`; `model::tests::unknown_build_is_not_accepted_by_a_numeric_floor`; `api::tests::safeos_assess_surfaces_lifecycle_expired_build` | Native execution is verified on this Windows 11 build; other editions/builds and LTSC edge cases remain open |
+| Scans did not gate execution and quarantine was a separate manual step | Added a fail-closed `guard` policy in `litric-core` and `litric guard` in the CLI: scan, quarantine malicious, block suspicious/unknown/truncated, re-hash, then spawn | `guard::tests::{malicious_is_quarantined_by_default,unknown_is_blocked_without_an_explicit_override,truncated_scan_never_allows_a_non_malicious_file}`; `guard_e2e::{malicious_target_is_quarantined_before_it_can_run,unknown_is_blocked_by_default,unknown_can_run_only_with_the_explicit_override}` | Only CLI launches through the guard; no Explorer/system-wide interception; scan-to-exec race narrowed, not eliminated; native Windows run not performed |
+| On-demand scans detected malicious files but left quarantine as a separate manual command | Added `scan --quarantine-malicious` and a shared post-scan pass that moves only `Malicious` outcomes through a digest-checked vault API; daemon scans expose the same pass and refuse it when `alert_only` is set | `scan_quarantine_e2e::{directory_scan_moves_only_malicious_and_is_safe_to_repeat,single_file_target_is_quarantined,a_failed_vault_write_retains_the_original_and_exits_4}`; `api::tests::scan_auto_quarantines_only_malicious_and_is_repeatable`; `quarantine::tests::checked_quarantine_*` | Clean/Unknown retained; source retained on failure; repeat scan safe; still on-demand only, no files created later, no ETW/AMSI/minifilter, native Windows pending |
+| Archives were identified but their members were never analysed, so malware inside a ZIP was invisible | Added `archive.rs`, a bounded in-memory ZIP/OOXML/JAR reader (512 entries, 16 MiB/member, 64 MiB/layer, 1000:1 ratio, depth 3); members go through the full engine and the container verdict follows the worst member | `archive::tests::*`; `engine::tests::{zip_member_with_eicar_is_malicious,benign_zip_stays_unknown,nested_zip_member_is_inspected,archive_depth_limit_is_reported_not_silently_clean}`; `scan_quarantine_e2e::malicious_zip_member_quarantines_the_container_without_touching_benign_files` | RAR/7z/ISO/MSI/CAB/gzip remain unimplemented; capped members are skipped and flagged, never clean; native Windows run not performed |
+| Encoded payloads were flagged but never decoded, so a rule could not match hidden content and no encoded payload could ever be confirmed | Added `deobfuscate.rs`: up to three layers of base64 (`-EncodedCommand`, `-enc`, `FromBase64String`, `atob(`), `[char[]](...)`/`[char]` cast chains and constant-key XOR (`-bxor <int>`), UTF-16LE normalisation, printable-ASCII payload validation, dedupe and volume caps, all charged to one shared 8,000,000-step `WorkBudget` per file; the engine re-analyses every decoded layer and escalates only when it is conclusive | `deobfuscate::tests::*` (19); `engine::tests::{an_encoded_powershell_payload_is_decoded_and_detected,base64_of_a_benign_image_does_not_escalate_a_script,unmarked_base64_is_never_decoded,a_two_layer_encoded_payload_is_decoded_end_to_end,a_benign_char_array_does_not_escalate_a_script}`; `scan_quarantine_e2e::{an_encoded_powershell_dropper_is_quarantined,an_xor_char_array_dropper_is_quarantined}` | Variable-key XOR search, string splitting, VBA string-building and emulation are not implemented; a random number table is rejected rather than guessed; native Windows run not performed |
+| Office macros were dismissed as opaque OLE2 bytes, so a macro dropper could sit in a `.docm` while the engine reported unknown | Added `vba.rs`: OOXML `vbaProject.bin` extraction, an MS-CFB reader (FAT, directory, mini stream, mini FAT) and an MS-OVBA chunk/copy-token decompressor; each module is analysed as source by the normal engine, with three macro rules | `vba::tests::*` (14); `engine::tests::{an_ooxml_macro_dropper_is_flagged,a_legacy_ole_document_with_a_macro_is_flagged,a_benign_macro_is_not_escalated}` | p-code presence is counted but not decompiled; password-protected modules are not decoded; native Windows run not performed |
+| Sandbox memory was sized from a formula with no floor on host capacity, so an underpowered host could be asked to start a session with no enforceable budget | Added a fail-closed resource governor (2 GB host RAM reserve, 40% cap, 2-8 GB guest, <=4 vCPU, one heavy session, 10/20 GiB session disk plus 5 GiB host reserve); `sandbox::prepare` refuses unless the governor returns a plan and writes that plan's memory into the `.wsb` | `governor::tests::*` (10); `sandbox::tests::{a_constrained_host_gets_a_reduced_plan_not_a_refusal,a_report_without_a_cpu_count_is_refused}`; `logical_cpus` added to the agent report | Hyper-V session accounting is still absent (no Hyper-V backend); `running_heavy` is supplied by the caller; native Windows run not performed |
 
 **Production wiring:** `AppState::new` installs `PlatformSignatureVerifier`; only tests call `AppState::new_with_verifier`. The trusted branch is therefore reachable outside test injection on Windows, although native `WinVerifyTrust` execution remains `UNPROVEN`. `[FACT]`
 
-**Run:** `cargo test --workspace` — **210 passed, 0 failed** on Linux after these changes. `cargo check -p litric-service --target x86_64-pc-windows-gnu` also succeeds; this is compile evidence, not native execution. `[FACT]`
+**Run:** `cargo test --workspace` — **597 passed, 0 failed, 1 ignored** natively on Windows 11 x86_64 after these changes (568 before the Phase 0/1 fixes), including the guard policy, CLI gate, scan-time quarantine pass, ZIP-family member recursion, the resource governor, bounded multi-layer script de-obfuscation, VBA macro extraction from OOXML and OLE2 documents, VBA p-code presence detection, Excel 4.0 (XLM) macro-sheet detection, and legacy BIFF5/BIFF7/BIFF8 XLM formula-token decoding. Raw evidence: `docs/WINDOWS_EVIDENCE.md`. `[FACT]`
 
 ---
 
@@ -310,10 +320,10 @@ Scores are `[JUDGMENT]` on a 1–5 scale; weighted score uses the prompt’s wei
 |---|---|---|---|---|---:|---|
 | C1 | Portable detection engine (PE, rules, heuristics, verdict) | Detection | `TESTED` | `NOW` | 4.7 | Corpus, FP baseline |
 | C2 | Scan orchestration, budgets, cache, accounting | Detection | `TESTED` | `NOW` | 4.4 | Worker pool, Windows file IDs |
-| C3 | Quarantine vault and lifecycle | Containment/recovery | `TESTED` (Linux) | `NOW` | 4.8 | NTFS proof, DPAPI |
+| C3 | Quarantine vault and lifecycle | Containment/recovery | `TESTED` (Windows/NTFS) | `NOW` | 4.8 | DPAPI, power-loss proof |
 | C4 | Signed threat database and update verifier | Content integrity | `TESTED` | `NOW` | 4.5 | Production key/HSM, HTTPS |
 | C5 | Local service/API/CLI | Control plane | `TESTED` (dev) | `NOW` | 3.8 | SCM, named pipe, ACL |
-| C6 | Native installer, service host, WinUI 3 shell | Product | `NOT_IMPLEMENTED` | `NOW` | 4.9 | Native Windows lab |
+| C6 | Native installer and WinUI 3 shell (SCM service host itself is implemented) | Product | `NOT_IMPLEMENTED` | `NOW` | 4.9 | Native Windows lab |
 | C7 | ETW/AMSI/WFP user-mode visibility | Telemetry/network | `NOT_IMPLEMENTED` | `NEXT` | 3.9 | Native Windows lab |
 | C8 | RansomShield sensor + recovery vault | Detection/recovery | `PARTIALLY_IMPLEMENTED` | `NEXT` | 4.6 | ETW, versioned backup |
 | C9 | SafeOS explicit isolation | Isolation | `PARTIALLY_IMPLEMENTED` / `UNPROVEN` | `LATER` | 2.8 | Native guest proof |
@@ -439,8 +449,8 @@ The executable source of truth is `WINDOWS_11_RELEASES` in `crates/litric-safeos
 
 | Capability | Mechanism | Editions/builds | Privilege/signing | Coexistence/limits | State | Fallback |
 |---|---|---|---|---|---|---|
-| Static scan/PE | User-mode Rust parser | Windows 11 x64 | None | Untrusted input; parser isolation needed | `TESTED` Linux; Windows `UNPROVEN` | Refuse/unknown |
-| Quarantine/restore | User-mode file APIs | NTFS/ReFS; declared builds | Service or user | No-clobber/ADS/ACL; native proof missing | `TESTED` Linux; Windows `UNPROVEN` | Preserve source |
+| Static scan/PE | User-mode Rust parser | Windows 11 x64 | None | Untrusted input; parser isolation needed | `TESTED` on Windows 11 | Refuse/unknown |
+| Quarantine/restore | User-mode file APIs | NTFS/ReFS; declared builds | Service or user | ADS/ACL/power-loss gaps | `TESTED` on Windows 11/NTFS | Preserve source |
 | SCM service | Win32 service | Windows 11 | Service account; signing | Recovery, least privilege, uninstall | `NOT_IMPLEMENTED` | Foreground daemon |
 | Named-pipe IPC | Win32 pipes + ACL | Windows 11 | Caller SID | Same-user malware; no remote pipes | `PROPOSED` | Dev loopback HTTP only |
 | ETW process/file | User-mode consumer | Windows 11 | SYSTEM/admin for kernel providers | Notification, not blocking; loss | `NOT_IMPLEMENTED` | No telemetry claim |
@@ -485,9 +495,11 @@ Coverage labels: `PREVENTION`, `DETECTION`, `TELEMETRY_ONLY`, `WINDOWS_MITIGATIO
 |---|---|---|---|---|---|
 | Commodity PE loader/dropper | T1204, T1105 | PE structure, imports, strings, rules, heuristics | Detection | `PARTIAL`; synthetic tests | Labelled corpus, FP/FN, native tests |
 | EICAR self-test | — | Authored rule | Detection | `TESTED` | Keep as self-test only |
-| Encoded PowerShell | T1059.001 | Encoded-content heuristics | Detection (flag only) | `PARTIAL`; no decoder | Decoder with instruction budget, tests |
-| Office macro delivery | T1204.002 | OOXML/OLE2 container detection | Detection (container only) | `PARTIAL`; no VBA extraction | Safe parser, macro extraction, corpus |
-| Archive-contained malware | T1027 | Format identification only | Detection (container only) | `NOT_COVERED` for members | Recursive extraction + bomb limits |
+| Encoded PowerShell | T1059.001, T1027.010 | Bounded multi-layer decode (base64, char arrays, constant-key XOR) + heuristics | Detection (decoded layers) | `PARTIAL`; explicit constructs and printable payloads only | Variable-key XOR, emulation, labelled corpus |
+| Office macros | T1204.002, T1059.005 | MS-OVBA extraction + source rules | Detection (macro source) | `PARTIAL`; p-code and encrypted projects not analysed | p-code, labelled corpus |
+| Excel 4.0 (XLM) macros | T1204.002, T1059.005 | OOXML formula extraction + BIFF5/7/8 `FORMULA` token decoding (MS-XLS Ftab) | Detection (formulas) | `PARTIAL`; external-reference resolution and `.xlsb` not decoded | Labelled corpus |
+| Office macro delivery | T1204.002 | OOXML/OLE2 macro extraction + source rules | Detection (macro source) | `PARTIAL`; p-code and deeper-nested projects not analysed | p-code, labelled corpus |
+| Archive-contained malware | T1027 | ZIP/OOXML/JAR members analysed recursively with hard limits; other containers identified only | Detection (ZIP family) | `PARTIAL`; RAR/7z/ISO/MSI/macros not covered | Labelled archive corpus, FP measurement, more readers |
 | Ransomware encryption | T1486 | RansomShield event scoring (simulator) | Detection/recovery request | `PARTIAL`; no ETW, no enforcement | ETW sensor, safe simulation, recovery |
 | Shadow-copy deletion | T1490 | Command-line/string signal | Detection | `PARTIAL`; definitive signal tested | Real telemetry, FP validation |
 | Process injection | T1055 | None | — | `NOT_COVERED`; needs memory/PPL telemetry | Native sensor; PPL gate |
@@ -495,9 +507,9 @@ Coverage labels: `PREVENTION`, `DETECTION`, `TELEMETRY_ONLY`, `WINDOWS_MITIGATIO
 | C2/network | T1071 | None | — | `NOT_COVERED` | WFP/DNS telemetry, leak tests |
 | Vulnerable/unsigned driver | T1068 | PE driver flag only | Detection (limited) | `PARTIAL` | Driver inventory/reputation, native data |
 | Credential access | T1003 | None | — | `NOT_COVERED` | ETW/AMSI/EDR plane; not v1 |
-| Unknown app execution | T1204 | SafeOS risk + fail-closed policy | Isolation decision | `TESTED` on Linux; guest `UNPROVEN` | Native launch + guest boundary |
+| Unknown app execution | T1204 | SafeOS risk + fail-closed policy | Isolation decision | `TESTED` on Windows 11; guest `UNPROVEN` | Capable host + guest boundary |
 
-**What the current engine does not provide:** hash reputation at scale, archive recursion, macro extraction, emulation/unpacking, de-obfuscation, memory scanning, process provenance, network enforcement, or kernel blocking. These are not small gaps; they are separate product layers. `[FACT]`
+**What the current engine does not provide:** hash reputation at scale, recursive scanning for non-ZIP containers, p-code decompilation, emulation/unpacking, variable-key XOR or emulated de-obfuscation, memory scanning, process provenance, network enforcement, or kernel blocking. These are not small gaps; they are separate product layers. `[FACT]`
 
 ---
 
@@ -554,7 +566,7 @@ SEC-04 (hard-coded `signature_chain_valid`) was resolved by the verifier plumbin
 
 ### Measured baseline
 
-Release build on a 2 vCPU Linux VM, 2,000 small files, 15 rules: approximately **3,050 files/s** and **3.1 MB/s** across three runs. `[FACT]` This is not Windows, not whole-disk, and not comparable with vendor benchmarks. `[FACT]`
+Release build on Windows 11 (i3-10105F, 4C/8T, 16 GB RAM), 73 rules: **505 files/s** on 767 PowerShell files (1.520 s best of three) and **56 files/s** on 603 driver images (10.832 s). `[FACT]` This is not whole-disk and not comparable with vendor benchmarks. `[FACT]` Raw numbers: `docs/BENCHMARKS.md`.
 
 ### Required profiles
 
@@ -604,14 +616,14 @@ Metrics: precision/recall, FP/FN, protection stage, detection/containment latenc
 
 - **G0 Evidence:** scope, audit, sources, threat model, no-gos accepted.
 - **G1 Core:** parser isolation, fuzzing, corpus/FP baseline, performance baseline.
-- **G2 Native Windows:** native execution on 25H2/26H2; NTFS/ADS/crash tests; no Wine substitution.
+- **G2 Native Windows:** execute on each declared build/edition; NTFS/ADS/crash tests; guest-boundary evidence where isolation is claimed.
 - **G3 Protection:** enforceable control point, Defender coexistence, event-loss test. If no enforcement, G3 is not met.
 - **G4 Recovery:** tested restore, safe ransomware simulations, zero unrecoverable data loss in the defined suite, RPO/RTO evidence.
 - **G5 Product:** installer, UI, upgrade/rollback/repair/uninstall, accessibility, support.
 - **G6 Commercial:** licensing, privacy, editions, support economics, incident response.
 - **G7 Validation:** independent evidence and release review; claims match results.
 
-A gate passes only with evidence. A document, compile, Wine run, or mock UI does not pass a gate. `[JUDGMENT]`
+A gate passes only with evidence. A document, compile, container run, or mock UI does not pass a gate. `[JUDGMENT]`
 
 ---
 
@@ -856,6 +868,6 @@ Repository claims are unusually disciplined. External evidence is sufficient to 
 
 ### Repository evidence
 
-`README.md`; `docs/STATUS.md`; `docs/LIMITATIONS.md`; `docs/ARCHITECTURE.md`; `docs/AUDIT.md`; `docs/SAFEOS_READINESS.md`; `docs/SAFEOS_WINDOWS_VERIFICATION.md`; `docs/WINDOWS_WINE_TESTING.md`; `docs/WINDOWS_WINE_TEST_EVIDENCE.txt`; `crates/litric-core`; `crates/litric-service`; `crates/litric-safeos`; `crates/litric-cli`; `crates/litric-agent`; `Cargo.toml`; `rules/core.lrs`.
+`README.md`; `docs/STATUS.md`; `docs/LIMITATIONS.md`; `docs/ARCHITECTURE.md`; `docs/AUDIT.md`; `docs/WINDOWS_EVIDENCE.md`; `docs/SAFEOS_READINESS.md`; `docs/SAFEOS_WINDOWS_VERIFICATION.md`; `crates/litric-core`; `crates/litric-service`; `crates/litric-safeos`; `crates/litric-cli`; `crates/litric-agent`; `Cargo.toml`; `rules/core.lrs`.
 
 **Audit snapshot:** commit `673e2de`, 2026-11-03. The blueprint was written before this pass; the working tree now contains the two portable fixes and their tests, uncommitted. The untracked master prompt is also present. No native Windows execution was performed.

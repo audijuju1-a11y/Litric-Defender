@@ -135,6 +135,10 @@ impl Client {
 
     // --- API surface -----------------------------------------------------
 
+    pub fn safety(&self) -> Result<Value, ClientError> {
+        self.request("GET", "/api/v1/safety", None)
+    }
+
     pub fn status(&self) -> Result<Value, ClientError> {
         self.request("GET", "/api/v1/status", None)
     }
@@ -147,10 +151,19 @@ impl Client {
         self.post("/api/v1/analyze", &json!({ "path": path }))
     }
 
-    pub fn start_scan(&self, path: &str, profile: &str) -> Result<Value, ClientError> {
+    pub fn start_scan(
+        &self,
+        path: &str,
+        profile: &str,
+        quarantine_malicious: bool,
+    ) -> Result<Value, ClientError> {
         self.post(
             "/api/v1/scan",
-            &json!({ "path": path, "profile": profile }),
+            &json!({
+                "path": path,
+                "profile": profile,
+                "quarantine_malicious": quarantine_malicious
+            }),
         )
     }
 
@@ -166,10 +179,21 @@ impl Client {
         self.request("GET", "/api/v1/quarantine", None)
     }
 
-    pub fn quarantine_add(&self, path: &str, threat: &str) -> Result<Value, ClientError> {
+    pub fn quarantine_add(
+        &self,
+        path: &str,
+        threat: &str,
+        remove_original: bool,
+    ) -> Result<Value, ClientError> {
         self.post(
             "/api/v1/quarantine",
-            &json!({ "path": path, "threat": threat }),
+            &json!({
+                "path": path,
+                "threat": threat,
+                // The API treats `copy_only: true` as the safe default. Only send
+                // the removal request when the user explicitly asked for it.
+                "copy_only": !remove_original
+            }),
         )
     }
 
@@ -398,6 +422,60 @@ fn decode_chunked(mut data: &[u8]) -> Vec<u8> {
 // Rendering. Kept separate from transport so terminal states are testable.
 // ---------------------------------------------------------------------------
 
+/// Human-readable safety posture: what Litric is allowed to delete, and whether
+/// the audit chain that records it is intact.
+pub fn render_safety(v: &Value) -> String {
+    let mut s = String::new();
+    let trusted = v["policy_trusted"].as_bool().unwrap_or(false);
+    s.push_str(&format!(
+        "safety policy: {} ({})\n",
+        v["policy_path"].as_str().unwrap_or("?"),
+        if trusted { "trusted" } else { "UNTRUSTED" }
+    ));
+    if let Some(e) = v["policy_error"].as_str() {
+        s.push_str(&format!("policy error : {e}\n"));
+    }
+    let audit = &v["audit"];
+    s.push_str(&format!(
+        "audit log    : {} ({} record(s), {})\n",
+        v["audit_path"].as_str().unwrap_or("?"),
+        audit["records"].as_u64().unwrap_or(0),
+        if audit["ok"].as_bool().unwrap_or(false) {
+            "chain verified"
+        } else {
+            "CHAIN BROKEN"
+        }
+    ));
+    if let Some(p) = audit["first_problem"].as_str() {
+        s.push_str(&format!("audit issue  : {p}\n"));
+    }
+    let policy = &v["policy"];
+    s.push_str(&format!(
+        "protected    : {} path(s) + {} exact path(s)\n",
+        policy["protected_paths"].as_array().map(|a| a.len()).unwrap_or(0),
+        policy["protected_exact"].as_array().map(|a| a.len()).unwrap_or(0)
+    ));
+    s.push_str(&format!(
+        "removal cap  : {}/min, {} bytes/min\n",
+        policy["max_removals_per_minute"].as_u64().unwrap_or(0),
+        policy["max_removal_bytes_per_minute"].as_u64().unwrap_or(0)
+    ));
+    s.push_str(&format!(
+        "re-hash      : {}\n",
+        if policy["rehash_before_delete"].as_bool().unwrap_or(false) {
+            "before every unlink"
+        } else {
+            "DISABLED"
+        }
+    ));
+    s.push_str(&format!(
+        "authorised   : {} removal(s), {} byte(s)\n",
+        v["authorised_removals"].as_u64().unwrap_or(0),
+        v["authorised_bytes"].as_u64().unwrap_or(0)
+    ));
+    s
+}
+
 /// Human-readable status. Never prints "protected" unless the daemon says so.
 pub fn render_status(v: &Value) -> String {
     let mut s = String::new();
@@ -499,6 +577,14 @@ pub fn render_job(v: &Value) -> String {
             if skipped > 0 || unreadable > 0 {
                 s.push_str(&format!(
                     "  skipped {skipped}  unreadable {unreadable}\n"
+                ));
+            }
+            if let Some(q) = v.get("quarantine") {
+                s.push_str(&format!(
+                    "  quarantine: {} malicious, {} moved, {} failed\n",
+                    q["malicious_seen"].as_u64().unwrap_or(0),
+                    q["quarantined"].as_u64().unwrap_or(0),
+                    q["failures"].as_u64().unwrap_or(0)
                 ));
             }
         }

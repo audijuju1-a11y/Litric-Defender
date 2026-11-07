@@ -1,0 +1,971 @@
+// ============================================================================
+// Litric Defender — extended category rules
+// ============================================================================
+// Written by Litric Labs. Each rule needs several corroborating indicators;
+// single common strings never convict. Severity reflects how conclusive the
+// *combination* is. Rules here are static string logic: they will miss
+// packed, encrypted or obfuscated samples and are NOT a substitute for a
+// signature feed. Category ids refer to the taxonomy in litric-core.
+// ============================================================================
+
+rule Miner.StratumConfig {
+    meta:
+        description = "Stratum pool URL together with a known miner engine marker"
+        family      = "Miner.Generic"
+        severity    = "high"
+        mitre       = "T1496"
+        author      = "Litric Labs"
+        tags        = "miner,resource-hijack"
+    strings:
+        $s1 = "stratum+tcp://" nocase
+        $s2 = "stratum+ssl://" nocase
+        $s3 = "stratum2+tcp://" nocase
+        $x1 = "xmrig" nocase
+        $x2 = "cryptonight" nocase
+        $x3 = "randomx" nocase
+        $x4 = "--donate-level" nocase
+        $x5 = "\"algo\"" nocase
+    condition:
+        ($s1 or $s2 or $s3) and ($x1 or $x2 or $x3 or $x4 or $x5)
+}
+
+rule Miner.BrowserScript {
+    meta:
+        description = "Script that embeds an in-browser cryptocurrency miner"
+        family      = "Miner.Browser"
+        severity    = "high"
+        mitre       = "T1496"
+        author      = "Litric Labs"
+        tags        = "miner,browser"
+    strings:
+        $a = "CoinHive.Anonymous" nocase
+        $b = "coinhive.min.js" nocase
+        $c = "webminerpool" nocase
+        $d = "cryptonoter" nocase
+        $e = "CryptoLoot.Anonymous" nocase
+        $f = "deepMiner" nocase
+    condition:
+        any of ($a,$b,$c,$d,$e,$f)
+}
+
+rule Webshell.PhpEval {
+    meta:
+        description = "PHP that evaluates request input as code"
+        family      = "Webshell.Php"
+        severity    = "high"
+        mitre       = "T1505.003"
+        author      = "Litric Labs"
+        tags        = "webshell"
+    strings:
+        $php = "<?php" nocase
+        $e1 = "eval($_POST" nocase
+        $e2 = "eval($_REQUEST" nocase
+        $e3 = "eval(base64_decode($_" nocase
+        $e4 = "assert($_POST" nocase
+        $e5 = "system($_GET" nocase
+        $e6 = "passthru($_" nocase
+        $e7 = "shell_exec($_" nocase
+    condition:
+        $php and any of ($e1,$e2,$e3,$e4,$e5,$e6,$e7)
+}
+
+rule Webshell.AspxExec {
+    meta:
+        description = "ASP/ASPX page that runs a process from request data"
+        family      = "Webshell.Aspx"
+        severity    = "high"
+        mitre       = "T1505.003"
+        author      = "Litric Labs"
+        tags        = "webshell"
+    strings:
+        $a1 = "<%@ Page" nocase
+        $a2 = "<%@ page" nocase
+        $rq = "Request.Item[" nocase
+        $rq2 = "Request[\"" nocase
+        $p = "Process.Start" nocase
+        $p2 = "cmd.exe /c" nocase
+    condition:
+        ($a1 or $a2) and ($rq or $rq2) and ($p or $p2)
+}
+
+rule Spy.KeyboardHookLogger {
+    meta:
+        description = "Global keyboard hook plus key-state polling and window titles"
+        family      = "Spyware.Keylogger"
+        severity    = "medium"
+        mitre       = "T1056.001"
+        author      = "Litric Labs"
+        tags        = "keylogger"
+    strings:
+        $h = "SetWindowsHookEx" nocase
+        $k = "WH_KEYBOARD_LL" nocase
+        $g = "GetAsyncKeyState" nocase
+        $s = "GetKeyboardState" nocase
+        $w = "GetForegroundWindow" nocase
+    condition:
+        $h and ($k or $g or $s) and $w
+}
+
+rule Spy.WebcamCapture {
+    meta:
+        description = "Legacy webcam capture API usage"
+        family      = "Spyware.Webcam"
+        severity    = "medium"
+        mitre       = "T1125"
+        author      = "Litric Labs"
+        tags        = "spyware,webcam"
+    strings:
+        $a = "capCreateCaptureWindow" nocase
+        $b = "avicap32" nocase
+        $c = "capGrabFrame" nocase
+        $d = "capFileSaveDIB" nocase
+    condition:
+        ($a and $b) and ($c or $d)
+}
+
+rule Spy.MicrophoneRecord {
+    meta:
+        description = "Microphone capture through waveIn APIs"
+        family      = "Spyware.Microphone"
+        severity    = "low"
+        mitre       = "T1123"
+        author      = "Litric Labs"
+        tags        = "spyware,microphone"
+    strings:
+        $a = "waveInOpen" nocase
+        $b = "waveInStart" nocase
+        $c = "waveInAddBuffer" nocase
+        $d = "mciSendString" nocase
+    condition:
+        ($a and $b and $c) or ($d and $a)
+}
+
+rule Spy.ScreenCaptureExfil {
+    meta:
+        description = "Screen capture API combined with an upload channel"
+        family      = "Spyware.ScreenCapture"
+        severity    = "low"
+        mitre       = "T1113"
+        author      = "Litric Labs"
+        tags        = "spyware,screen"
+    strings:
+        $a = "CreateCompatibleBitmap" nocase
+        $b = "BitBlt" nocase
+        $c = "GetDC" nocase
+        $u1 = "multipart/form-data" nocase
+        $u2 = "api.telegram.org" nocase
+        $u3 = "discord.com/api/webhooks" nocase
+    condition:
+        ($a and $b and $c) and ($u1 or $u2 or $u3)
+}
+
+rule Spy.ClipboardMonitor {
+    meta:
+        description = "Clipboard listener that writes back replaced content"
+        family      = "Spyware.Clipboard"
+        severity    = "low"
+        mitre       = "T1115"
+        author      = "Litric Labs"
+        tags        = "spyware,clipboard,clipper"
+    strings:
+        $a = "AddClipboardFormatListener" nocase
+        $b = "SetClipboardData" nocase
+        $c = "GetClipboardData" nocase
+        $d = "OpenClipboard" nocase
+        $e = "wallet" nocase
+        $f = "bitcoin" nocase
+    condition:
+        ($a and $b) and ($e or $f)
+}
+
+rule Stealer.BrowserCredentials {
+    meta:
+        description = "Reads browser credential stores and decrypts them"
+        family      = "Infostealer.Browser"
+        severity    = "high"
+        mitre       = "T1555.003"
+        author      = "Litric Labs"
+        tags        = "infostealer,browser,credentials"
+    strings:
+        $l1 = "Login Data" nocase
+        $l2 = "logins.json" nocase
+        $k1 = "encrypted_key" nocase
+        $k2 = "os_crypt" nocase
+        $k3 = "key4.db" nocase
+        $d = "CryptUnprotectData" nocase
+        $p = "User Data\\Default" nocase
+    condition:
+        ($l1 or $l2) and ($k1 or $k2 or $k3 or $d) and ($p or $k3 or $l2)
+}
+
+rule Stealer.BrowserCookies {
+    meta:
+        description = "Reads browser cookie stores and decrypts them"
+        family      = "Infostealer.Cookies"
+        severity    = "high"
+        mitre       = "T1539"
+        author      = "Litric Labs"
+        tags        = "infostealer,cookies,session"
+    strings:
+        $c1 = "Network\\Cookies" nocase
+        $c2 = "cookies.sqlite" nocase
+        $c3 = "\\Cookies" nocase
+        $d = "CryptUnprotectData" nocase
+        $k = "encrypted_key" nocase
+    condition:
+        ($c1 or $c2) and ($d or $k)
+}
+
+rule Stealer.DiscordToken {
+    meta:
+        description = "Collects chat-application session tokens from local storage"
+        family      = "Infostealer.Token"
+        severity    = "high"
+        mitre       = "T1528"
+        author      = "Litric Labs"
+        tags        = "infostealer,token,session"
+    strings:
+        $d = "discord" nocase
+        $l = "Local Storage\\leveldb" nocase
+        $t1 = "oauth_token" nocase
+        $t2 = "\"token\"" nocase
+        $t3 = "dQw4w9WgXcQ" nocase
+        $w = "discord.com/api/webhooks" nocase
+    condition:
+        $d and $l and ($t1 or $t2 or $t3 or $w)
+}
+
+rule Stealer.CryptoWallets {
+    meta:
+        description = "References several cryptocurrency wallet stores"
+        family      = "Infostealer.Wallet"
+        severity    = "high"
+        mitre       = "T1005"
+        author      = "Litric Labs"
+        tags        = "infostealer,wallet"
+    strings:
+        $a = "wallet.dat" nocase
+        $b = "\\Electrum\\wallets" nocase
+        $c = "MetaMask" nocase
+        $d = "\\Exodus\\" nocase
+        $e = "\\Ethereum\\keystore" nocase
+        $f = "\\Armory\\" nocase
+        $g = "nkbihfbeogaeaoehlefnkodbefgpgknn" nocase
+    condition:
+        3 of them
+}
+
+rule Persist.WmiEventSubscription {
+    meta:
+        description = "WMI permanent event subscription (filter, consumer, binding)"
+        family      = "Persistence.WMI"
+        severity    = "high"
+        mitre       = "T1546.003"
+        author      = "Litric Labs"
+        tags        = "persistence,wmi"
+    strings:
+        $f = "__EventFilter" nocase
+        $c1 = "CommandLineEventConsumer" nocase
+        $c2 = "ActiveScriptEventConsumer" nocase
+        $b = "__FilterToConsumerBinding" nocase
+    condition:
+        $f and ($c1 or $c2) and $b
+}
+
+rule Bot.IrcCommandChannel {
+    meta:
+        description = "IRC protocol verbs together with bot flood/download commands"
+        family      = "Bot.IRC"
+        severity    = "high"
+        mitre       = "T1071,T1095"
+        author      = "Litric Labs"
+        tags        = "bot,irc,c2"
+    strings:
+        $a = "PRIVMSG"
+        $b = "JOIN #"
+        $c = "NICK "
+        $d1 = "!ddos" nocase
+        $d2 = ".udp " nocase
+        $d3 = ".syn " nocase
+        $d4 = "!dl " nocase
+        $d5 = ".download " nocase
+        $d6 = ".update " nocase
+    condition:
+        $a and $b and $c and ($d1 or $d2 or $d3 or $d4 or $d5 or $d6)
+}
+
+rule Bot.FloodToolkit {
+    meta:
+        description = "Several network flood methods named in one file"
+        family      = "Bot.DDoS"
+        severity    = "medium"
+        mitre       = "T1498"
+        author      = "Litric Labs"
+        tags        = "bot,ddos"
+    strings:
+        $a = "syn flood" nocase
+        $b = "udp flood" nocase
+        $c = "http flood" nocase
+        $d = "slowloris" nocase
+        $e = "icmp flood" nocase
+    condition:
+        3 of them
+}
+
+rule Hijack.BrowserSettings {
+    meta:
+        description = "Rewrites browser search/home settings"
+        family      = "Hijacker.Browser"
+        severity    = "medium"
+        mitre       = "T1176"
+        author      = "Litric Labs"
+        tags        = "hijacker,browser"
+    strings:
+        $a = "SearchScopes" nocase
+        $b = "DefaultScope" nocase
+        $c = "Start Page" nocase
+        $d = "Secure Preferences" nocase
+        $e = "homepage" nocase
+        $f = "restore_on_startup" nocase
+        $g = "search_provider_overrides" nocase
+        $h = "Internet Explorer\\Main" nocase
+    condition:
+        ($a and $b) or ($c and $h) or ($d and $e and ($f or $g))
+}
+
+rule Scam.FakeAvAlerts {
+    meta:
+        description = "Fake security alert wording used by scareware"
+        family      = "Scareware.Generic"
+        severity    = "medium"
+        mitre       = "T1204"
+        author      = "Litric Labs"
+        tags        = "scareware,fakeav"
+    strings:
+        $a = "your computer is infected" nocase
+        $b = "viruses detected" nocase
+        $c = "call toll free" nocase
+        $d = "your pc is at risk" nocase
+        $e = "buy full version to remove" nocase
+        $f = "critical error" nocase
+        $g = "call microsoft" nocase
+    condition:
+        3 of them
+}
+
+rule Ransom.LockerNote {
+    meta:
+        description = "Screen-locker wording with unlock demand"
+        family      = "Ransomware.Locker"
+        severity    = "high"
+        mitre       = "T1486,T1491"
+        author      = "Litric Labs"
+        tags        = "ransomware,locker"
+    strings:
+        $a = "your computer has been locked" nocase
+        $b = "your system has been locked" nocase
+        $c = "unlock code" nocase
+        $d = "your screen is locked" nocase
+        $e = "pay a fine" nocase
+        $f = "unlock your computer" nocase
+    condition:
+        2 of them
+}
+
+rule Wiper.RawDiskWrite {
+    meta:
+        description = "Opens physical drive or volume devices for raw write alongside boot-sector wording"
+        family      = "Destructive.RawDisk"
+        severity    = "medium"
+        mitre       = "T1561.001,T1561.002"
+        author      = "Litric Labs"
+        tags        = "wiper,mbr"
+    strings:
+        $a = "\\\\.\\PhysicalDrive" nocase
+        $b = "WriteFile" nocase
+        $c = "SetFilePointer" nocase
+        $m1 = "boot sector" nocase
+        $m2 = "MBR"
+        $m3 = "0xAA55" nocase
+    condition:
+        $a and $b and $c and ($m1 or $m2 or $m3)
+}
+
+rule Wiper.CommandChain {
+    meta:
+        description = "Command sequences that erase data or free space"
+        family      = "Destructive.Commands"
+        severity    = "high"
+        mitre       = "T1485,T1561"
+        author      = "Litric Labs"
+        tags        = "wiper,destructive"
+    strings:
+        $a = "cipher /w" nocase
+        $b = "format c: /y" nocase
+        $c = "diskpart" nocase
+        $d = "clean all" nocase
+        $e = "sdelete" nocase
+        $f = "del /f /s /q" nocase
+        $g = "rd /s /q c:\\" nocase
+    condition:
+        $b or ($c and $d) or (($a or $e) and ($f or $g))
+}
+
+rule Boot.IntegrityDisable {
+    meta:
+        description = "Disables boot/driver integrity checks through BCD"
+        family      = "Boot.Tamper"
+        severity    = "high"
+        mitre       = "T1553.006,T1542.003"
+        author      = "Litric Labs"
+        tags        = "boot,integrity"
+    strings:
+        $a = "bcdedit" nocase
+        $b = "testsigning on" nocase
+        $c = "nointegritychecks" nocase
+        $d = "DISABLE_INTEGRITY_CHECKS" nocase
+        $e = "safeboot minimal" nocase
+    condition:
+        $a and ($b or $c or $d or $e)
+}
+
+rule Boot.FirmwareVariableWrite {
+    meta:
+        description = "Writes firmware (UEFI) environment variables"
+        family      = "Boot.UEFI"
+        severity    = "medium"
+        mitre       = "T1542.001"
+        author      = "Litric Labs"
+        tags        = "uefi,firmware"
+    strings:
+        $a = "SetFirmwareEnvironmentVariable" nocase
+        $b = "NtSetSystemEnvironmentValueEx" nocase
+        $c = "SeSystemEnvironmentPrivilege" nocase
+    condition:
+        ($a or $b) and $c
+}
+
+rule Driver.VulnerableDriverLoad {
+    meta:
+        description = "Names a commonly abused vulnerable signed driver and loads a kernel driver service"
+        family      = "Driver.BYOVD"
+        severity    = "high"
+        mitre       = "T1068,T1014"
+        author      = "Litric Labs"
+        tags        = "driver,byovd"
+    strings:
+        $n1 = "RTCore64.sys" nocase
+        $n2 = "dbutil_2_3.sys" nocase
+        $n3 = "gdrv.sys" nocase
+        $n4 = "AsIO3.sys" nocase
+        $n5 = "WinRing0" nocase
+        $n6 = "iqvw64e.sys" nocase
+        $n7 = "cpuz141.sys" nocase
+        $n8 = "procexp152.sys" nocase
+        $s1 = "NtLoadDriver" nocase
+        $s2 = "CreateService" nocase
+        $s3 = "SERVICE_KERNEL_DRIVER" nocase
+        $s4 = "sc create" nocase
+    condition:
+        any of ($n1,$n2,$n3,$n4,$n5,$n6,$n7,$n8) and any of ($s1,$s2,$s3,$s4)
+}
+
+rule Inject.ProcessHollowing {
+    meta:
+        description = "Classic process-hollowing API sequence"
+        family      = "Injection.Hollowing"
+        severity    = "high"
+        mitre       = "T1055.012"
+        author      = "Litric Labs"
+        tags        = "injection,hollowing"
+    strings:
+        $a = "NtUnmapViewOfSection" nocase
+        $b = "WriteProcessMemory" nocase
+        $c = "SetThreadContext" nocase
+        $d = "ResumeThread" nocase
+    condition:
+        // Size is corroborating evidence, not a preference: kernel32.dll and
+        // other OS binaries export all four names, so API presence alone is
+        // not evidence. Loaders that hollow out a host process are small.
+        $a and $b and $c and $d and filesize < 128KB
+}
+
+rule Inject.ReflectiveLoaderExport {
+    meta:
+        description = "Reflective DLL loader export"
+        family      = "Injection.Reflective"
+        severity    = "high"
+        mitre       = "T1620"
+        author      = "Litric Labs"
+        tags        = "injection,reflective"
+    strings:
+        $a = "ReflectiveLoader"
+        $b = "VirtualAlloc" nocase
+        $c = "GetProcAddress" nocase
+    condition:
+        $a and $b and $c
+}
+
+rule Rat.MeterpreterMarkers {
+    meta:
+        description = "Markers of the Meterpreter payload"
+        family      = "Rat.Meterpreter"
+        severity    = "high"
+        mitre       = "T1219,T1071"
+        author      = "Litric Labs"
+        tags        = "rat,c2"
+    strings:
+        $a = "meterpreter" nocase
+        $b = "metsrv" nocase
+        $c = "stdapi_" nocase
+        $d = "ext_server_" nocase
+    condition:
+        2 of them
+}
+
+rule Rat.NamedFamilyWithCapabilities {
+    meta:
+        description = "Names a well-known RAT family next to remote-control capability wording"
+        family      = "Rat.Named"
+        severity    = "medium"
+        mitre       = "T1219"
+        author      = "Litric Labs"
+        tags        = "rat"
+    strings:
+        $f1 = "AsyncRAT" nocase
+        $f2 = "QuasarRAT" nocase
+        $f3 = "Quasar.Client" nocase
+        $f4 = "NanoCore" nocase
+        $f5 = "DarkComet" nocase
+        $f6 = "njRAT" nocase
+        $f7 = "Remcos" nocase
+        $c1 = "keylogger" nocase
+        $c2 = "remote desktop" nocase
+        $c3 = "webcam" nocase
+        $c4 = "reverse proxy" nocase
+    condition:
+        any of ($f1,$f2,$f3,$f4,$f5,$f6,$f7) and 2 of ($c1,$c2,$c3,$c4)
+}
+
+rule Lolbin.WmicXslRemote {
+    meta:
+        description = "wmic loading a remote XSL stylesheet"
+        family      = "Lolbin.Wmic"
+        severity    = "high"
+        mitre       = "T1220"
+        author      = "Litric Labs"
+        tags        = "lolbin,wmic"
+    strings:
+        $a = "wmic" nocase
+        $b = "/format:" nocase
+        $c = "http" nocase
+    condition:
+        $a and $b and $c
+}
+
+rule Lolbin.MsiexecRemote {
+    meta:
+        description = "msiexec installing a remote package quietly"
+        family      = "Lolbin.Msiexec"
+        severity    = "high"
+        mitre       = "T1218.007"
+        author      = "Litric Labs"
+        tags        = "lolbin,msiexec"
+    strings:
+        $a = "msiexec" nocase
+        $b = "/i http" nocase
+        $c = "/q" nocase
+    condition:
+        $a and $b and $c
+}
+
+rule Persist.RegistryAutorunsAdvanced {
+    meta:
+        description = "Registry persistence beyond Run keys (IFEO, AppInit, Winlogon, COM hijack)"
+        family      = "Persistence.Registry"
+        severity    = "high"
+        mitre       = "T1546.012,T1546.010,T1547.004,T1546.015"
+        author      = "Litric Labs"
+        tags        = "persistence,registry"
+    strings:
+        $a = "Image File Execution Options" nocase
+        $b = "Debugger" nocase
+        $c = "AppInit_DLLs" nocase
+        $d = "Winlogon\\Userinit" nocase
+        $e = "Winlogon\\Shell" nocase
+        $f = "Software\\Classes\\CLSID" nocase
+        $g = "InprocServer32" nocase
+        $h = "reg add" nocase
+        $i = "RegSetValue" nocase
+    condition:
+        (($a and $b) or $c or $d or $e or ($f and $g)) and ($h or $i)
+}
+
+rule Evasion.UacBypassRegistryHijack {
+    meta:
+        description = "Registry shell-command hijack used for UAC bypass"
+        family      = "Evasion.UAC"
+        severity    = "high"
+        mitre       = "T1548.002"
+        author      = "Litric Labs"
+        tags        = "evasion,uac"
+    strings:
+        $a = "ms-settings\\shell\\open\\command" nocase
+        $b = "mscfile\\shell\\open\\command" nocase
+        $c = "DelegateExecute" nocase
+        $d = "fodhelper" nocase
+        $e = "eventvwr" nocase
+    condition:
+        (($a and $c) and $d) or ($b and $e)
+}
+
+rule Evasion.AmsiBypass {
+    meta:
+        description = "Patches or disables AMSI"
+        family      = "Evasion.AMSI"
+        severity    = "high"
+        mitre       = "T1562.001"
+        author      = "Litric Labs"
+        tags        = "evasion,amsi"
+    strings:
+        $a = "AmsiScanBuffer" nocase
+        $b = "amsiInitFailed" nocase
+        $c = "VirtualProtect" nocase
+        $d = "amsi.dll" nocase
+    condition:
+        $b or ($a and $c and $d)
+}
+
+rule Credential.NtdsDitAccess {
+    meta:
+        description = "Domain database extraction"
+        family      = "CredentialAccess.NTDS"
+        severity    = "high"
+        mitre       = "T1003.003"
+        author      = "Litric Labs"
+        tags        = "credential,ntds"
+    strings:
+        $a = "ntds.dit" nocase
+        $b = "ntdsutil" nocase
+        $c = "vssadmin create shadow" nocase
+        $d = "ifm" nocase
+    condition:
+        $a and ($b or $c) 
+}
+
+rule Lateral.RemoteExecTools {
+    meta:
+        description = "Remote execution tooling strings (PsExec service, WMI process create, ADMIN$ copy)"
+        family      = "Lateral.RemoteExec"
+        severity    = "medium"
+        mitre       = "T1021.002,T1047,T1570"
+        author      = "Litric Labs"
+        tags        = "lateral,smb"
+    strings:
+        $a = "PSEXESVC" nocase
+        $b = "wmic /node:" nocase
+        $c = "process call create" nocase
+        $d = "\\ADMIN$" nocase
+        $e = "smbexec" nocase
+    condition:
+        $a or ($b and $c) or $e or ($d and ($b or $c))
+}
+
+rule Worm.SmbExploitReferences {
+    meta:
+        description = "Several SMB-exploit identifiers in one file"
+        family      = "Worm.SMB"
+        severity    = "medium"
+        mitre       = "T1210"
+        author      = "Litric Labs"
+        tags        = "worm,smb"
+    strings:
+        $a = "eternalblue" nocase
+        $b = "doublepulsar" nocase
+        $c = "ms17-010" nocase
+        $d = "\\IPC$" nocase
+        $e = "srvnet" nocase
+    condition:
+        3 of them
+}
+
+rule Worm.AutorunInf {
+    meta:
+        description = "autorun.inf style launcher for removable media"
+        family      = "Worm.Removable"
+        severity    = "medium"
+        mitre       = "T1091"
+        author      = "Litric Labs"
+        tags        = "worm,usb"
+    strings:
+        $a = "[autorun]" nocase
+        $b = "open=" nocase
+        $c = "shellexecute=" nocase
+        $d = "shell\\open\\command" nocase
+    condition:
+        $a and ($b or $c or $d)
+}
+
+rule Tunnel.DnsToolMarkers {
+    meta:
+        description = "DNS tunnelling tool markers"
+        family      = "Network.DnsTunnel"
+        severity    = "medium"
+        mitre       = "T1071.004,T1572"
+        author      = "Litric Labs"
+        tags        = "dns,tunnel"
+    strings:
+        $a = "dnscat2" nocase
+        $b = "iodine" nocase
+        $c = "dns2tcp" nocase
+        $d = "dnscat" nocase
+    condition:
+        any of ($a,$c,$d) or ($b and $c)
+}
+
+rule Sniffer.PromiscuousSocket {
+    meta:
+        description = "Raw socket with receive-all and capture library markers"
+        family      = "Network.Sniffer"
+        severity    = "low"
+        mitre       = "T1040"
+        author      = "Litric Labs"
+        tags        = "network,sniffer"
+    strings:
+        $a = "SIO_RCVALL" nocase
+        $b = "WSAIoctl" nocase
+        $c = "wpcap" nocase
+        $d = "npcap" nocase
+    condition:
+        ($a and $b) or ($c and $d)
+}
+
+rule Network.ProxyHijack {
+    meta:
+        description = "Sets system proxy or PAC script through the registry"
+        family      = "Network.ProxyHijack"
+        severity    = "medium"
+        mitre       = "T1090,T1557"
+        author      = "Litric Labs"
+        tags        = "network,proxy,mitm"
+    strings:
+        $a = "ProxyEnable" nocase
+        $b = "AutoConfigURL" nocase
+        $c = "ProxyServer" nocase
+        $d = "Internet Settings" nocase
+        $e = "reg add" nocase
+    condition:
+        $d and ($a or $b or $c) and $e
+}
+
+rule Extension.OverBroadPermissions {
+    meta:
+        description = "Browser extension manifest with blocking request access, all URLs and cookie access"
+        family      = "Extension.Suspicious"
+        severity    = "medium"
+        mitre       = "T1176"
+        author      = "Litric Labs"
+        tags        = "extension,browser"
+    strings:
+        $a = "webRequestBlocking" nocase
+        $b = "<all_urls>" nocase
+        $c = "\"cookies\"" nocase
+        $d = "manifest_version" nocase
+    condition:
+        $a and $b and $c and $d
+}
+
+rule Pkg.NpmInstallScriptDownloader {
+    meta:
+        description = "npm lifecycle script that downloads or evaluates remote code"
+        family      = "SupplyChain.Npm"
+        severity    = "high"
+        mitre       = "T1195.002"
+        author      = "Litric Labs"
+        tags        = "supply-chain,npm"
+    strings:
+        $a = "\"scripts\"" nocase
+        $p1 = "\"preinstall\"" nocase
+        $p2 = "\"postinstall\"" nocase
+        $c1 = "curl " nocase
+        $c2 = "wget " nocase
+        $c3 = "powershell" nocase
+        $c4 = "node -e" nocase
+        $c5 = "base64 -d" nocase
+    condition:
+        $a and ($p1 or $p2) and any of ($c1,$c2,$c3,$c4,$c5)
+}
+
+rule Pkg.PythonSetupExec {
+    meta:
+        description = "Python setup script that runs shell or remote code during install"
+        family      = "SupplyChain.PyPI"
+        severity    = "medium"
+        mitre       = "T1195.002"
+        author      = "Litric Labs"
+        tags        = "supply-chain,pypi"
+    strings:
+        $a = "setup(" nocase
+        $b = "cmdclass" nocase
+        $c = "os.system(" nocase
+        $d = "urllib.request" nocase
+        $e = "base64.b64decode" nocase
+        $f = "subprocess" nocase
+    condition:
+        $a and $b and ($c or $f) and ($d or $e)
+}
+
+rule Pup.BundlerFrameworks {
+    meta:
+        description = "Names of well-known monetised installer frameworks"
+        family      = "Pup.Bundler"
+        severity    = "medium"
+        mitre       = "T1204"
+        author      = "Litric Labs"
+        tags        = "pup,bundler"
+    strings:
+        $a = "InstallCore" nocase
+        $b = "OpenCandy" nocase
+        $c = "Amonetize" nocase
+        $d = "InstallMonetizer" nocase
+    condition:
+        any of them
+}
+
+rule Pup.ToolbarSearchHijackers {
+    meta:
+        description = "Names of well-known browser toolbar / search hijacker products"
+        family      = "Pup.Toolbar"
+        severity    = "medium"
+        mitre       = "T1176"
+        author      = "Litric Labs"
+        tags        = "pup,toolbar"
+    strings:
+        $a = "Babylon Toolbar" nocase
+        $b = "Delta Search" nocase
+        $c = "Search Protect" nocase
+        $d = "Yontoo" nocase
+        $e = "Ask Toolbar" nocase
+        $f = "Conduit Search" nocase
+    condition:
+        any of them
+}
+
+rule Android.SmsBankerPermissions {
+    meta:
+        description = "Permission set typical of SMS-stealing banking trojans"
+        family      = "Android.Banker"
+        severity    = "medium"
+        mitre       = "T1426"
+        author      = "Litric Labs"
+        tags        = "android,banker"
+    strings:
+        $m = "AndroidManifest" nocase
+        $a = "android.permission.RECEIVE_SMS" nocase
+        $b = "android.permission.READ_SMS" nocase
+        $c = "BIND_ACCESSIBILITY_SERVICE" nocase
+        $d = "SYSTEM_ALERT_WINDOW" nocase
+        $e = "REQUEST_INSTALL_PACKAGES" nocase
+    condition:
+        $m and $a and $c and $d and ($b or $e)
+}
+
+rule Linux.ShellDropperPersistence {
+    meta:
+        description = "Shell script that downloads, marks executable and installs cron persistence"
+        family      = "Linux.Dropper"
+        severity    = "high"
+        mitre       = "T1105,T1053.003"
+        author      = "Litric Labs"
+        tags        = "linux,dropper"
+    strings:
+        $a = "wget http" nocase
+        $b = "curl http" nocase
+        $c = "chmod +x" nocase
+        $d = "/tmp/" nocase
+        $e = "/dev/shm" nocase
+        $f = "crontab" nocase
+        $g = "/etc/cron" nocase
+    condition:
+        ($a or $b) and $c and ($d or $e) and ($f or $g)
+}
+
+rule Iot.MiraiLikeMarkers {
+    meta:
+        description = "Mirai-family IoT bot markers"
+        family      = "Iot.Mirai"
+        severity    = "high"
+        mitre       = "T1498,T1071"
+        author      = "Litric Labs"
+        tags        = "iot,botnet"
+    strings:
+        $a = "/bin/busybox" nocase
+        $b = "MIRAI"
+        $c = "TSource Engine Query" nocase
+        $d = "gayfgt" nocase
+    condition:
+        $a and ($b or $c or $d)
+}
+
+rule Macos.KeychainOsascriptStealer {
+    meta:
+        description = "osascript prompts and keychain reads in one script"
+        family      = "Macos.Stealer"
+        severity    = "medium"
+        mitre       = "T1555.001"
+        author      = "Litric Labs"
+        tags        = "macos,stealer"
+    strings:
+        $a = "osascript" nocase
+        $b = "security find-generic-password" nocase
+        $c = "Library/Keychains" nocase
+        $d = "display dialog" nocase
+    condition:
+        $a and ($b or $c) and $d
+}
+
+rule Ransom.NetworkShareEncryption {
+    meta:
+        description = "Network share enumeration combined with bulk file encryption APIs"
+        family      = "Ransomware.Network"
+        severity    = "medium"
+        mitre       = "T1135,T1486"
+        author      = "Litric Labs"
+        tags        = "ransomware,network"
+    strings:
+        $a = "NetShareEnum" nocase
+        $b = "WNetOpenEnum" nocase
+        $c = "CryptEncrypt" nocase
+        $d = "BCryptEncrypt" nocase
+        $e = "FindFirstFile" nocase
+        $f = "\\\\" nocase
+    condition:
+        ($a or $b) and ($c or $d) and $e
+}
+
+rule Ransom.TargetExtensionList {
+    meta:
+        description = "Large embedded list of document/database extensions beside crypto APIs"
+        family      = "Ransomware.Generic"
+        severity    = "medium"
+        mitre       = "T1486"
+        author      = "Litric Labs"
+        tags        = "ransomware,targets"
+    strings:
+        $c1 = "CryptEncrypt" nocase
+        $c2 = "BCryptEncrypt" nocase
+        $c3 = "chacha20" nocase
+        $c4 = "AES"
+        $e1 = ".docx" nocase
+        $e2 = ".xlsx" nocase
+        $e3 = ".pdf" nocase
+        $e4 = ".sql" nocase
+        $e5 = ".mdb" nocase
+        $e6 = ".vmdk" nocase
+        $e7 = ".bak" nocase
+        $e8 = ".psd" nocase
+        $e9 = ".pptx" nocase
+        $e10 = ".zip" nocase
+    condition:
+        any of ($c1,$c2,$c3,$c4) and 7 of ($e1,$e2,$e3,$e4,$e5,$e6,$e7,$e8,$e9,$e10)
+}

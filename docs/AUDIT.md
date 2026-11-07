@@ -1,9 +1,11 @@
 # Repository audit — Litric Defender
 
-**Date:** 2026-11-02
+**Date:** 2026-11-02 (original audit); environment re-checked 2026-11-07
 **Auditor:** Litric Defender Engineering
-**Repository state at audit:** empty (0 tracked files, 2 commits: "Import cloud
-project files", "Initial cloud project")
+**Repository state at original audit:** empty (0 tracked files, 2 commits:
+"Import cloud project files", "Initial cloud project"). The project has since
+been built and is now a Windows-only Rust workspace; current status lives in
+`docs/STATUS.md` and `docs/WINDOWS_EVIDENCE.md`.
 
 ## 1. What existed
 
@@ -14,14 +16,15 @@ assume the product is empty" was checked and the answer is that it *is* empty.
 Consequently this is a greenfield build, and the audit's real value is the
 constraint analysis below, not a survey of existing modules.
 
-Environment available for this work:
+Current environment (re-checked 2026-11-07):
 
 | Item | Value |
 |---|---|
-| Host | Linux x86-64 cloud VM, 2 vCPU, 3.9 GB RAM |
-| Toolchain | rustc/cargo 1.99.1 (stable) |
-| Windows build | cargo target `x86_64-pc-windows-gnu` installed; no WDK, no MSVC, no Windows host |
-| Windows runtime | none — no Windows VM available in this environment |
+| Host | Windows 11 Home, build 26300, Intel i3-10105F 4C/8T, 16 GB RAM |
+| Toolchain | rustc/cargo 1.99.0 with the `x86_64-pc-windows-gnu` target |
+| Windows SDK / WDK | not installed — no driver build or kernel debugging is possible here |
+| Virtualization | Windows Sandbox and the Hyper-V role are absent on Home edition; no Windows guest is available |
+| Test status | full workspace suite executed natively: 597 passed, 0 failed, 1 ignored (568 before the Phase 0/1 fixes), Defender real-time protection off during the run |
 
 ## 2. Constraints discovered by research (and what they force)
 
@@ -77,7 +80,8 @@ hash feed is installed.
 
 1. **Rust for the engine.** The scanner parses attacker-controlled bytes; memory
    safety removes an entire vulnerability class (parser RCE) at the cost of some
-   tuning work. No `unsafe` in `litric-core`.
+   tuning work. `litric-core` has no `unsafe` outside the isolated
+   `winplatform` module (DPAPI and DACL wrappers added in Phase 1).
 2. **Original rule language, not YARA.** Requirement: original detection logic.
    The engine has its own grammar (`.lrs`), own parser and own Aho–Corasick
    matcher, with no YARA code or data.
@@ -95,19 +99,21 @@ hash feed is installed.
 
 | Weakness | Impact | Mitigation planned |
 |---|---|---|
-| No recursive archive scanning | Malware inside ZIP/ISO/MSI is identified only as a container | `archive` module with depth/size/ratio limits (`STATUS.md`) |
+| Archive scanning is ZIP-family only | ZIP/OOXML/JAR members are analysed with depth/size/ratio limits; RAR/7z/ISO/MSI/gzip remain container-only (macro extraction is a separate path) | More readers behind the same limits; keep truncation explicit (`STATUS.md`) |
 | Native Authenticode chain execution unproven | Engine trust dampening still treats "signed" as structural; `safeos_assess` uses `WinVerifyTrust` on Windows, but native execution, revocation, and page hashes are unproven | Native Windows certificate matrix; keep parser wording scoped to the engine |
-| No script de-obfuscation | Encoded PowerShell is flagged, not decoded | Static decoder with instruction budget |
+| De-obfuscation is bounded pattern decoding | Up to three layers of base64, char arrays and constant-key XOR behind explicit constructs; variable-key XOR, string splitting, VBA string-building and emulation stay undecoded | Extend the bounded decoder and validate it against a labelled corpus |
+| VBA analysis is source-level only | Macros are extracted from `vbaProject.bin` and decompressed; p-code presence is reported but not decompiled, and password-protected modules or deeper-nested projects stay uninspected | Add p-code decompilation; validate against public macro corpora |
+| Legacy XLM formula decoding covers BIFF5–BIFF8 only | OOXML macro-sheet formulas and legacy BIFF5/BIFF7/BIFF8 `FORMULA` tokens are analysed as text; BIFF5/7 code-page strings are mapped as Latin-1, array constants and memory wrappers are decoded, external-reference resolution is not performed, `.xlsb` is not parsed, and unknown ids are marked incomplete | Resolve external references, validate against a labelled XLM corpus |
 | Threat DB contains no hash feed | Zero hash-reputation coverage | Licensed feed or community corpus with clean licence |
 | Rules tested only on synthetic fixtures | Unknown false-positive rate on real corpora | Labelled corpus + FP measurement harness |
-| No Windows host | All Windows-specific behaviour is unverified | Windows VM test matrix |
+| Sandbox/Hyper-V unavailable on the development host | The guest boundary and VM backends are unverified | Pro/Enterprise host with virtualization enabled and a disposable guest |
 
 ## 5. Proposed order of work
 
 1. ~~Detection core, rules, verdicts~~ (done)
 2. ~~Quarantine vault, threat DB signing, scan accounting~~ (done)
 3. ~~RansomShield decision engine + HoneyVault~~ (done)
-4. Archive extraction with bomb limits; script decoding
+4. ~~ZIP-family archive recursion with bomb limits~~ and ~~bounded multi-layer script decoding~~ (done); RAR/7z/ISO readers; variable-key XOR and emulated decoding
 5. Windows user-mode sensor (ETW `Kernel-Process` / `Kernel-File`) + service host
 6. AMSI provider; WFP application rules
 7. Windows UI bound to the real service

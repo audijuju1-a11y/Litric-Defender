@@ -2,12 +2,12 @@
 
 Binary: `litric` (`crates/litric-cli`). Library: `litric_cli::client`
 (HTTP transport + rendering, 8 unit tests). End-to-end: `tests/daemon_e2e.rs`
-(15 tests, real binary against a real daemon) plus `tests/safeos_launch_verify.rs`
-(4 POSIX-only tests) and `tests/platform_evidence.rs` (2 portable evidence-sync
-tests). The Windows-target suite passed 195/195 under Wine 11.21, with 8
-Windows-excluded tests (6 POSIX-only, 2 coverage gaps); native Windows execution
-is still UNPROVEN. See `docs/WINDOWS_WINE_TESTING.md` and the readiness doc's
-`test_evidence` block.
+(16 tests, real binary against a real daemon), `tests/safeos_launch_verify.rs`
+(4 host-execution canary tests) and `tests/platform_evidence.rs` (2 evidence-sync
+tests). The full workspace suite ran natively on Windows 11 x86_64 on 2026-11-07:
+597 passed, 0 failed, no excluded tests (568 before the Phase 0/1 fixes). Raw evidence: `docs/WINDOWS_EVIDENCE.md`;
+gate evidence: the readiness doc's `test_evidence` block. Quarantine ADS/timestamp E2E:
+`docs/PHASE1_QUARANTINE_METADATA.md`.
 
 ## Behaviour
 

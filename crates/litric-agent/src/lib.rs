@@ -61,6 +61,7 @@ $docker = @($adapters | Where-Object { $_.InterfaceDescription -like '*Docker*' 
   sandbox_feature_present = [bool]$sandbox
   total_ram_mb = [int64][math]::Floor($cs.TotalPhysicalMemory / 1MB)
   free_disk_mb = if ($null -ne $disk) { [int64][math]::Floor($disk.FreeSpace / 1MB) } else { 0 }
+  logical_cpus = [int]$env:NUMBER_OF_PROCESSORS
   existing_nat_networks = [int]$natCount
   nat_query_ok = $natQueryOk
   wsl_switches = [int]$wsl
@@ -85,6 +86,9 @@ pub fn validate(f: &HostFacts) -> Result<(), String> {
     if f.existing_nat_networks > 64 {
         return Err("existing_nat_networks looks implausible".into());
     }
+    if f.logical_cpus > 1024 {
+        return Err("logical_cpus looks implausible".into());
+    }
     Ok(())
 }
 
@@ -108,6 +112,7 @@ pub fn facts_json(f: &HostFacts) -> Value {
         "sandbox_feature_present": f.sandbox_feature_present,
         "total_ram_mb": f.total_ram_mb,
         "free_disk_mb": f.free_disk_mb,
+        "logical_cpus": f.logical_cpus,
         "existing_nat_networks": f.existing_nat_networks,
         "nat_query_ok": f.nat_query_ok,
         "wsl_switches": f.wsl_switches,
@@ -115,7 +120,8 @@ pub fn facts_json(f: &HostFacts) -> Value {
     })
 }
 
-/// Human-readable summary. Always shows host support and build support apart.
+/// Human-readable summary. Reports per-backend readiness with the blocking
+/// reason; it never claims that a sandbox launch has been verified.
 pub fn summary(f: &HostFacts) -> String {
     let r = Readiness::evaluate(f);
     let mut s = String::new();
@@ -132,15 +138,24 @@ pub fn summary(f: &HostFacts) -> String {
         f.total_ram_mb, f.free_disk_mb
     ));
     s.push_str(&format!(
+        "logical CPUs  : {}\n",
+        if f.logical_cpus == 0 {
+            "unknown - resource governor refuses"
+        } else {
+            "reported"
+        }
+    ));
+    s.push_str(&format!(
         "NAT networks  : {} (query {})\n",
         f.existing_nat_networks,
         if f.nat_query_ok { "ok" } else { "FAILED — gateway refused" }
     ));
     for b in backend_status(f) {
         s.push_str(&format!(
-            "  {:<18} host supports: {:<3}  litric can launch: no (not implemented)\n",
+            "  {:<18} host ready: {:<3}  {}\n",
             b.kind,
-            if b.available { "yes" } else { "no" }
+            if b.available { "yes" } else { "no" },
+            b.reason
         ));
     }
     if !r.blockers.is_empty() {
@@ -152,39 +167,29 @@ pub fn summary(f: &HostFacts) -> String {
     s
 }
 
-/// Runs the read-only collector. Only available on Windows builds.
+/// Runs the read-only collector on this Windows host.
 pub fn collect() -> Result<HostFacts, String> {
-    #[cfg(windows)]
-    {
-        use std::process::Command;
-        let out = Command::new("powershell.exe")
-            .args([
-                "-NoProfile",
-                "-NonInteractive",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-Command",
-                COLLECT_SCRIPT,
-            ])
-            .output()
-            .map_err(|e| format!("cannot run powershell.exe: {e}"))?;
-        if !out.status.success() {
-            return Err(format!(
-                "collector failed ({}): {}",
-                out.status,
-                String::from_utf8_lossy(&out.stderr).trim()
-            ));
-        }
-        let text = String::from_utf8_lossy(&out.stdout);
-        facts_from_json_text(text.trim())
-            .map_err(|e| format!("{e}; raw output: {}", text.trim()))
+    use std::process::Command;
+    let out = Command::new("powershell.exe")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            COLLECT_SCRIPT,
+        ])
+        .output()
+        .map_err(|e| format!("cannot run powershell.exe: {e}"))?;
+    if !out.status.success() {
+        return Err(format!(
+            "collector failed ({}): {}",
+            out.status,
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
     }
-    #[cfg(not(windows))]
-    {
-        Err("host probing is Windows-only and this binary was built for another OS; \
-             use --fixture <facts.json> for offline testing"
-            .into())
-    }
+    let text = String::from_utf8_lossy(&out.stdout);
+    facts_from_json_text(text.trim()).map_err(|e| format!("{e}; raw output: {}", text.trim()))
 }
 
 /// Sends facts to the daemon. Returns (status code, body).
@@ -260,6 +265,7 @@ mod tests {
         "sandbox_feature_present": true,
         "total_ram_mb": 16384,
         "free_disk_mb": 102400,
+        "logical_cpus": 8,
         "existing_nat_networks": 0,
         "nat_query_ok": true,
         "wsl_switches": 1,
@@ -270,6 +276,7 @@ mod tests {
     fn a_real_shaped_report_parses_and_is_usable() {
         let f = facts_from_json_text(GOOD).expect("fixture");
         assert!(f.known);
+        assert_eq!(f.logical_cpus, 8);
         let r = Readiness::evaluate(&f);
         assert!(r.sandbox_usable && r.hyperv_usable && r.gateway_usable);
     }
@@ -297,11 +304,19 @@ mod tests {
     }
 
     #[test]
-    fn summary_never_claims_litric_can_launch() {
-        let f = facts_from_json_text(GOOD).expect("fixture");
+    fn summary_reports_host_readiness_not_a_launch_claim() {
+        let good = facts_from_json_text(GOOD).expect("fixture");
+        let s = summary(&good);
+        assert!(s.contains("host ready: yes"), "{s}");
+        assert!(!s.contains("can launch: yes"), "{s}");
+
+        let home = GOOD
+            .replace("\"virtualization_enabled\": true", "\"virtualization_enabled\": false")
+            .replace("\"sandbox_feature_present\": true", "\"sandbox_feature_present\": false");
+        let f = facts_from_json_text(&home).expect("fixture");
         let s = summary(&f);
-        assert!(s.contains("litric can launch: no"));
-        assert!(!s.contains("litric can launch: yes"));
+        assert!(s.contains("host ready: no"), "{s}");
+        assert!(!s.contains("not implemented"), "{s}");
     }
 
     #[test]

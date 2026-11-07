@@ -1,0 +1,16 @@
+[package]
+name = "realtime"
+version = "0.1.0"
+edition = "2021"
+description = "Litric real-time pipeline: bounded event queue, attribution, containment; Windows sources behind cfg(windows)"
+license = "LicenseRef-Proprietary"
+
+[dependencies]
+ransomshield = { path = "../ransomshield" }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "=0.52.0", features = [
+  "Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_IO",
+  "Win32_System_Threading", "Win32_System_Diagnostics_ToolHelp",
+  "Win32_Security"
+] }

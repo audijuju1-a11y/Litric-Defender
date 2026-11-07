@@ -1,0 +1,20 @@
+[package]
+name = "litric-guard"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Litric real-time service: wires engine, pipeline, HoneyVault, Recovery Vault"
+
+[dependencies]
+ransomshield = { path = "../ransomshield" }
+realtime = { path = "../realtime" }
+recovery = { path = "../recovery" }
+honeyvault = { path = "../honeyvault" }
+
+[lib]
+name = "service"
+path = "src/lib.rs"
+
+[[bin]]
+name = "litric-guard"
+path = "src/main.rs"

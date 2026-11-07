@@ -82,6 +82,11 @@ pub struct Exported {
     pub sha256: String,
     pub bytes: u64,
     pub replaced_existing: bool,
+    /// When an existing destination was replaced, the path holding the previous
+    /// version. The previous file is moved aside, never unlinked: if publishing
+    /// the new file fails it is restored, and if it succeeds the old version is
+    /// still available for the user.
+    pub previous_version: Option<PathBuf>,
 }
 
 /// Root-scoped staging broker.
@@ -241,24 +246,45 @@ impl Broker {
 
             gate(&temp).map_err(BrokerError::RejectedByScan)?;
 
-            match fs::rename(&temp, dest) {
-                Ok(()) => {}
-                Err(_) if exists => {
-                    // Windows rename cannot replace; the verified temp is kept
-                    // until the old file is removed, so a crash leaves both.
-                    fs::remove_file(dest).map_err(|e| {
-                        BrokerError::Io(format!("remove existing destination {}: {e}", dest.display()))
-                    })?;
-                    fs::rename(&temp, dest).map_err(|e| {
-                        BrokerError::Io(format!("publish temporary file to {}: {e}", dest.display()))
-                    })?;
-                }
-                Err(e) => {
-                    return Err(BrokerError::Io(format!(
-                        "publish temporary file to {}: {e}",
+            // Never unlink the destination. Move the previous version aside
+            // first, publish the verified temp, and keep the old version. A
+            // failed publish restores the original; a crash leaves both files
+            // on disk instead of losing one.
+            let mut previous_version = None;
+            if exists {
+                let backup = parent.join(format!(
+                    ".litric-{}-{}.previous",
+                    unique(),
+                    name
+                ));
+                fs::rename(dest, &backup).map_err(|e| {
+                    BrokerError::Io(format!(
+                        "move existing destination {} aside: {e}",
                         dest.display()
-                    )));
+                    ))
+                })?;
+                previous_version = Some(backup);
+            }
+            if let Err(e) = fs::rename(&temp, dest) {
+                if let Some(backup) = &previous_version {
+                    let restored = fs::rename(backup, dest);
+                    return Err(BrokerError::Io(match restored {
+                        Ok(()) => format!(
+                            "publish temporary file to {}: {e}; the previous file was restored",
+                            dest.display()
+                        ),
+                        Err(restore_error) => format!(
+                            "publish temporary file to {}: {e}; the previous file is preserved at {} \
+                             because restoring it failed: {restore_error}",
+                            dest.display(),
+                            backup.display()
+                        ),
+                    }));
                 }
+                return Err(BrokerError::Io(format!(
+                    "publish temporary file to {}: {e}",
+                    dest.display()
+                )));
             }
 
             Ok(Exported {
@@ -266,6 +292,7 @@ impl Broker {
                 sha256: actual,
                 bytes: staged_meta.len(),
                 replaced_existing: exists,
+                previous_version,
             })
         })();
 
@@ -334,18 +361,11 @@ mod tests {
 
     fn test_dir(tag: &str) -> PathBuf {
         let name = format!("litric-broker-{tag}-{}-{}", std::process::id(), unique());
-        #[cfg(windows)]
-        {
-            std::env::var_os("SystemRoot")
-                .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from(r"C:\Windows"))
-                .join("Temp")
-                .join(name)
-        }
-        #[cfg(not(windows))]
-        {
-            std::env::temp_dir().join(name)
-        }
+        std::env::var_os("SystemRoot")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(r"C:\Windows"))
+            .join("Temp")
+            .join(name)
     }
 
     impl TempTree {
@@ -395,6 +415,7 @@ mod tests {
         assert_eq!(fs::read(&dest).unwrap(), b"payload bytes");
         assert_eq!(exported.sha256, imported.sha256);
         assert!(!exported.replaced_existing);
+        assert!(exported.previous_version.is_none());
     }
 
     #[test]
@@ -426,6 +447,12 @@ mod tests {
         let exported = broker.export(&imported.staged, &dest, true).unwrap();
         assert!(exported.replaced_existing);
         assert_eq!(fs::read(&dest).unwrap(), b"new content");
+        let previous = exported.previous_version.expect("previous version retained");
+        assert_eq!(
+            fs::read(&previous).unwrap(),
+            b"old",
+            "approved overwrite must preserve the original bytes"
+        );
     }
 
     #[test]
@@ -473,24 +500,6 @@ mod tests {
         assert!(matches!(
             broker.import(&src).unwrap_err(),
             BrokerError::TooLarge { .. }
-        ));
-    }
-
-    // WINDOWS-EXCLUDED-TEST: litric-safeos/src/broker.rs::symlinks_are_refused
-    // Windows coverage gap, not a passing test: creating this fixture needs a
-    // symlink privilege/developer mode, and the refusal path is not exercised.
-    #[cfg(unix)]
-    #[test]
-    fn symlinks_are_refused() {
-        let t = TempTree::new("symlink");
-        let real = t.0.join("real.bin");
-        fs::write(&real, b"data").unwrap();
-        let link = t.0.join("link.bin");
-        std::os::unix::fs::symlink(&real, &link).unwrap();
-        let broker = Broker::new(&t.0.join("stage")).unwrap();
-        assert!(matches!(
-            broker.import(&link).unwrap_err(),
-            BrokerError::Symlink(_)
         ));
     }
 

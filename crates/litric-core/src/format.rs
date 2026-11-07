@@ -81,6 +81,15 @@ impl FileFormat {
         )
     }
 
+    /// ZIP-family containers have a reader in the portable engine. Other
+    /// archive formats are identified but are not unpacked yet.
+    pub fn is_zip_family(&self) -> bool {
+        matches!(
+            self,
+            FileFormat::Zip | FileFormat::Ooxml | FileFormat::Jar
+        )
+    }
+
     pub fn label(&self) -> &'static str {
         match self {
             FileFormat::Pe => "pe",
@@ -280,7 +289,7 @@ pub fn find_embedded_pe(data: &[u8]) -> Option<usize> {
     None
 }
 
-fn looks_like_text(data: &[u8]) -> bool {
+pub fn looks_like_text(data: &[u8]) -> bool {
     let n = data.len().min(4096);
     let sample = &data[..n];
     if sample.is_empty() {

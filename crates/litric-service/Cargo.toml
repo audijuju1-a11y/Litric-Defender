@@ -17,6 +17,7 @@ path = "src/main.rs"
 [dependencies]
 litric-core = { path = "../litric-core" }
 litric-safeos = { path = "../litric-safeos" }
+processgate = { path = "../processgate" }
 serde.workspace = true
 serde_json.workspace = true
 getrandom.workspace = true
@@ -26,6 +27,10 @@ clap.workspace = true
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
     "Win32_Security_Cryptography",
     "Win32_Security_WinTrust",
+    "Win32_System_Services",
+    "Win32_System_Threading",
 ] }

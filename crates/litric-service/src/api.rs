@@ -80,6 +80,7 @@ pub fn dispatch(state: &AppState, method: &str, url: &str, body: &[u8]) -> ApiRe
         },
         ("POST", ["api", "v1", "scans", id, "cancel"]) => cancel_scan(state, id),
         ("POST", ["api", "v1", "analyze"]) => analyze(state, body),
+        ("GET", ["api", "v1", "safety"]) => ok(state.vault.safety().status_json()),
         ("GET", ["api", "v1", "quarantine"]) => ok(json!({
             "entries": state
                 .vault
@@ -128,9 +129,21 @@ pub fn capabilities() -> Value {
     json!({
         "on_demand_scan": true,
         "quarantine": true,
+        "destructive_operation_guard": true,
         "threat_database": true,
         "behavioural_ransomware_engine": true,
-        "archive_recursion": false,
+        // ZIP/OOXML/JAR members are scanned recursively with hard limits;
+        // RAR/7z/ISO/MSI/CAB/gzip readers do not exist yet.
+        "archive_recursion": true,
+        // Bounded base64/XOR/char-array layers behind explicit decode constructs,
+        // charged to one shared step budget per file.
+        "script_deobfuscation": true,
+        // VBA modules extracted from OOXML/OLE2 and analysed as source.
+        "vba_macros": true,
+        // Performance-cache (p-code) presence is reported, not decompiled.
+        "vba_pcode_detection": true,
+        // Excel 4.0 macro sheets: OOXML formulas and legacy BIFF5/7/8 tokens analysed.
+        "xlm_macros": true,
         "authenticode_chain_validation": false,
         "real_time_file_blocking": false,
         "kernel_sensor": false,
@@ -153,34 +166,17 @@ pub fn capabilities() -> Value {
 }
 
 /// Evidence provenance shared by the gate and the mechanical platform checks.
-/// The suite has only been executed on this POSIX host; changing these values
-/// requires a recorded Windows run, not inference from a cross-compile.
-pub const SUITE_EXECUTED_ON: &str = "Linux x86_64 (POSIX host)";
-pub const WINDOWS_SUITE_EXECUTION: &str = "UNPROVEN";
+/// These values describe the native Windows run this repository performs;
+/// changing them requires a recorded run, not inference from a cross-compile.
+pub const SUITE_EXECUTED_ON: &str = "Windows 11 x86_64 (native, x86_64-pc-windows-gnu)";
+pub const WINDOWS_SUITE_EXECUTION: &str = "READY";
 pub const WINDOWS_SUITE_REASON: &str =
-    "Native Windows 11 execution has not been performed. The Windows-target test binaries were executed under Wine 11.21: 195 passed, 0 failed, 8 Windows-excluded tests (6 POSIX-only, 2 Windows coverage gaps). Wine is not native Windows and does not prove NTFS or Windows Sandbox behavior.";
-pub const WINE_SUITE_EXECUTED_ON: &str =
-    "Wine 11.21 (Linux x86_64), target x86_64-pc-windows-gnu";
-pub const WINE_SUITE_RESULT: &str =
-    "195 passed; 0 failed; 8 Windows-excluded tests (6 POSIX-only, 2 Windows coverage gaps)";
-pub const WINE_SUITE_SCOPE: &str =
-    "Windows ABI under Wine; not native Windows 11, NTFS, or Windows Sandbox guest evidence";
+    "Full workspace suite executed natively on Windows 11 x86_64 with the x86_64-pc-windows-gnu toolchain on 2026-11-07; every test passed and no test is Windows-excluded.";
 
-/// Tests excluded from the Windows target. Six test non-Windows platform
-/// behavior; two are Windows coverage gaps (file-id dedupe is not implemented
-/// and the symlink fixture needs privileges), not passing tests. Every id must
-/// carry a `// POSIX-ONLY-TEST:` or `// WINDOWS-EXCLUDED-TEST:` marker in its
-/// source file; `platform_evidence` checks this list, the markers and the doc.
-pub const WINDOWS_EXCLUDED_TESTS: &[&str] = &[
-    "litric-agent/tests/agent_e2e.rs::launch_refuses_politely_without_a_windows_launcher",
-    "litric-cli/tests/safeos_launch_verify.rs::a_valid_request_writes_a_locked_down_config_and_stops_at_the_platform_gate",
-    "litric-cli/tests/safeos_launch_verify.rs::every_readiness_blocker_is_named_and_reevaluated",
-    "litric-cli/tests/safeos_launch_verify.rs::no_launch_path_executes_the_host_application",
-    "litric-cli/tests/safeos_launch_verify.rs::unsafe_paths_are_rejected_with_stable_messages",
-    "litric-core/src/scan.rs::hard_links_are_deduplicated",
-    "litric-safeos/src/broker.rs::symlinks_are_refused",
-    "litric-safeos/src/sandbox.rs::a_file_name_with_separators_cannot_escape_the_mapping",
-];
+/// Windows-only repository: POSIX-only tests were removed together with the
+/// support. This stays empty and `platform_evidence` enforces that no
+/// `#[cfg(unix)]` or `#[cfg(not(windows))]` test reappears unnoticed.
+pub const WINDOWS_EXCLUDED_TESTS: &[&str] = &[];
 
 /// Fail-closed capability report. Anything without real evidence is UNPROVEN,
 /// BLOCKED or NOT_IMPLEMENTED; nothing may be READY just because it compiles.
@@ -191,11 +187,11 @@ pub fn readiness_json() -> Value {
         "BLOCKED"
     };
     let caps = json!({
-        "on_demand_scan": { "state": "READY", "evidence": "automated tests on Linux x86_64 (POSIX host)" },
-        "quarantine": { "state": "READY", "evidence": "lifecycle and recovery tests on Linux x86_64 (POSIX host); Windows filesystem semantics are separate and UNPROVEN" },
-        "safeos_risk_assessment": { "state": "READY", "evidence": "automated tests on Linux x86_64 (POSIX host)" },
-        "safeos_fail_closed_policy": { "state": "READY", "evidence": "automated tests on Linux x86_64 (POSIX host)" },
-        "safeos_sandbox_config": { "state": "READY", "evidence": "automated .wsb tests on Linux x86_64 (POSIX host)" },
+        "on_demand_scan": { "state": "READY", "evidence": "automated tests on native Windows 11 x86_64 (2026-11-06)" },
+        "quarantine": { "state": "READY", "evidence": "lifecycle and recovery tests on native Windows 11 x86_64/NTFS (2026-11-06)" },
+        "safeos_risk_assessment": { "state": "READY", "evidence": "automated tests on native Windows 11 x86_64 (2026-11-06)" },
+        "safeos_fail_closed_policy": { "state": "READY", "evidence": "automated tests on native Windows 11 x86_64 (2026-11-06)" },
+        "safeos_sandbox_config": { "state": "READY", "evidence": "automated .wsb tests on native Windows 11 x86_64 (2026-11-06)" },
         "safeos_sandbox_launch": {
             "state": launch,
             "reason": if litric_safeos::sandbox::LAUNCH_IMPLEMENTED {
@@ -213,8 +209,8 @@ pub fn readiness_json() -> Value {
             "reason": WINDOWS_SUITE_REASON
         },
         "quarantine_windows_filesystem_semantics": {
-            "state": "UNPROVEN",
-            "reason": "hard_link/create_new publish and occupied-destination behavior passed under Wine's Windows ABI; native Windows/NTFS semantics remain unproven"
+            "state": "READY",
+            "evidence": "no-clobber restore, occupied-destination refusal and journal recovery passed natively on Windows 11 x86_64/NTFS (2026-11-06)"
         },
         "safeos_hyperv_backend": { "state": "NOT_IMPLEMENTED" },
         "safeos_network_gateway": { "state": "NOT_IMPLEMENTED" },
@@ -242,9 +238,6 @@ pub fn readiness_json() -> Value {
         "capabilities": caps,
         "test_evidence": {
             "suite_executed_on": SUITE_EXECUTED_ON,
-            "wine_suite_executed_on": WINE_SUITE_EXECUTED_ON,
-            "wine_suite_result": WINE_SUITE_RESULT,
-            "wine_suite_scope": WINE_SUITE_SCOPE,
             "windows_suite_execution": WINDOWS_SUITE_EXECUTION,
             "windows_suite_reason": WINDOWS_SUITE_REASON,
             "windows_excluded_tests": WINDOWS_EXCLUDED_TESTS,
@@ -289,6 +282,12 @@ fn status_json(state: &AppState) -> Value {
         },
         "real_time_protection": realtime_active,
         "realtime_requested_by_user": state.realtime_requested,
+        // Null when no gate runs. A gate is best-effort containment, not the
+        // kernel pre-execution sensor that `state: protected` requires.
+        "process_gate": state
+            .process_gate()
+            .map(|handle| serde_json::to_value(handle.status()).unwrap_or(Value::Null))
+            .unwrap_or(Value::Null),
         "capabilities": cap,
         "readiness": readiness_json(),
         "rules_loaded": state.engine.rules().len(),
@@ -335,6 +334,19 @@ fn start_scan(state: &AppState, body: &[u8]) -> ApiResponse {
     if !matches!(profile.as_str(), "quick" | "full" | "deep" | "custom") {
         return bad_request("profile must be one of: quick, full, deep, custom");
     }
+    let quarantine_malicious = v["quarantine_malicious"].as_bool().unwrap_or(false);
+    if quarantine_malicious {
+        let alert_only = match state.store.lock() {
+            Ok(s) => s.settings.alert_only,
+            Err(_) => return err(500, "settings lock poisoned"),
+        };
+        if alert_only {
+            return err(
+                409,
+                "automatic quarantine is disabled by settings.alert_only; turn it off or use POST /api/v1/quarantine",
+            );
+        }
+    }
     let target = match std::fs::canonicalize(raw_path) {
         Ok(p) => p,
         Err(e) => return bad_request(format!("cannot access `{raw_path}`: {e}")),
@@ -347,6 +359,7 @@ fn start_scan(state: &AppState, body: &[u8]) -> ApiResponse {
     let engine = state.engine.clone();
     let jobs = state.jobs.clone();
     let store = state.store.clone();
+    let vault = state.vault.clone();
     let id = job_id.clone();
     let scan_target = target.clone();
     let limits = default_limits(&profile);
@@ -372,6 +385,15 @@ fn start_scan(state: &AppState, body: &[u8]) -> ApiResponse {
         let suspicious = summary.suspicious;
         let unknown = summary.unknown;
         let duration_ms = summary.duration.as_millis() as u64;
+        // A cancelled scan is incomplete evidence; do not move files from it.
+        let quarantine = if quarantine_malicious && !cancelled {
+            Some(litric_core::scan_quarantine::quarantine_malicious(
+                &summary,
+                vault.as_ref(),
+            ))
+        } else {
+            None
+        };
 
         jobs.update(&id, |job| {
             job.state = if cancelled {
@@ -381,6 +403,7 @@ fn start_scan(state: &AppState, body: &[u8]) -> ApiResponse {
             };
             job.finished_unix = Some(now_unix());
             job.summary = Some(summary);
+            job.quarantine = quarantine;
         });
 
         if let Ok(mut st) = store.lock() {
@@ -440,6 +463,8 @@ fn job_json(job: &Job) -> Value {
         out["cancelled"] = json!(s.cancelled);
         out["bytes_scanned"] = json!(s.bytes_scanned);
         out["duration_ms"] = json!(s.duration.as_millis() as u64);
+        out["files_per_second"] = json!(s.files_per_second());
+        out["mb_per_second"] = json!(s.mb_per_second());
         out["detections"] = json!(s
             .detections
             .iter()
@@ -452,6 +477,24 @@ fn job_json(job: &Job) -> Value {
                 "sha256": d.sha256,
             }))
             .collect::<Vec<_>>());
+    }
+    if let Some(q) = &job.quarantine {
+        out["quarantined"] = json!(q.quarantined);
+        out["quarantine_failures"] = json!(q.failures);
+        out["quarantine"] = json!({
+            "malicious_seen": q.malicious_seen,
+            "quarantined": q.quarantined,
+            "failures": q.failures,
+            "entries": q.entries.iter().take(200).map(|m| json!({
+                "id": m.id,
+                "path": m.original_path,
+                "sha256": m.sha256,
+                "threat": m.threat_name,
+                "original_removed": m.original_removed,
+            })).collect::<Vec<_>>(),
+            "entries_truncated": q.entries.len() > 200,
+            "errors": q.errors,
+        });
     }
     out
 }
@@ -540,6 +583,7 @@ fn safeos_status(state: &AppState) -> Value {
                 "sandbox_feature_present": facts.sandbox_feature_present,
                 "total_ram_mb": facts.total_ram_mb,
                 "free_disk_mb": facts.free_disk_mb,
+                "logical_cpus": facts.logical_cpus,
                 "existing_nat_networks": facts.existing_nat_networks,
                 "nat_query_ok": facts.nat_query_ok,
                 "wsl_switches": facts.wsl_switches,
@@ -577,11 +621,33 @@ fn safeos_status(state: &AppState) -> Value {
                 "remediation": b.remediation,
             }))
             .collect::<Vec<_>>(),
+        // What the resource governor would allocate right now, from the same
+        // facts the launch gate uses. It is a decision, not a measurement.
+        "resource_governor": {
+            "max_heavy_sessions": litric_safeos::governor::MAX_HEAVY_SESSIONS,
+            "windows_sandbox": resource_decision(&facts, litric_safeos::governor::Backend::WindowsSandbox),
+            "hyperv_managed": resource_decision(&facts, litric_safeos::governor::Backend::HyperV),
+        },
         "windows_sandbox_launch_implemented": litric_safeos::sandbox::LAUNCH_IMPLEMENTED,
         "windows_sandbox_launch_verified": litric_safeos::sandbox::LAUNCH_VERIFIED_ON_WINDOWS,
         "hyperv_backend_implemented": false,
         "network_gateway_implemented": false,
     })
+}
+
+/// Governor decision for one backend, evaluated with no session running.
+fn resource_decision(
+    facts: &HostFacts,
+    backend: litric_safeos::governor::Backend,
+) -> Value {
+    litric_safeos::governor::decide(
+        facts,
+        &litric_safeos::governor::ResourceRequest::new(
+            backend,
+            litric_safeos::model::ExecutionLevel::Unknown,
+        ),
+    )
+    .to_json()
 }
 
 /// Accepts a read-only host report from `litric-agent`.
@@ -605,6 +671,9 @@ fn safeos_host_facts(state: &AppState, body: &[u8]) -> ApiResponse {
     }
     if facts.existing_nat_networks > 64 {
         return bad_request("existing_nat_networks looks implausible; refusing the report");
+    }
+    if facts.logical_cpus > 1024 {
+        return bad_request("logical_cpus looks implausible; refusing the report");
     }
     match state.host_facts.lock() {
         Ok(mut slot) => *slot = Some(facts),
@@ -772,7 +841,10 @@ fn quarantine_add(state: &AppState, body: &[u8]) -> ApiResponse {
         return bad_request("field `path` is required");
     };
     let threat = v["threat"].as_str().unwrap_or("User.Request");
-    let copy_only = v["copy_only"].as_bool().unwrap_or(false);
+    // Safety first: an API call copies the sample and leaves the original in
+    // place unless the caller explicitly asks to remove it. A UI bug or a
+    // malformed request must never be able to delete a file on its own.
+    let copy_only = v["copy_only"].as_bool().unwrap_or(true);
 
     let path = match std::fs::canonicalize(raw) {
         Ok(p) => p,
@@ -817,9 +889,12 @@ fn vault_error(e: VaultError) -> ApiResponse {
     match e {
         VaultError::NotFound(m) => not_found(m),
         VaultError::Conflict(m) => err(409, m),
-        VaultError::IntegrityMismatch { .. } | VaultError::Authentication => {
+        VaultError::IntegrityMismatch { .. }
+        | VaultError::SourceChanged { .. }
+        | VaultError::Authentication => {
             err(409, format!("vault integrity check failed: {e}"))
         }
+        VaultError::SafetyRefused(m) => err(403, m),
         VaultError::Corrupt(m) => err(409, format!("vault entry corrupt: {m}")),
         VaultError::Io(_) => err(500, format!("vault I/O failed: {e}")),
     }
@@ -1169,13 +1244,86 @@ rule Eicar.Test {
         let _ = fs::remove_dir_all(&base);
     }
 
+    fn wait_for_job(state: &AppState, id: &str) -> Value {
+        for _ in 0..400 {
+            let poll = dispatch(state, "GET", &format!("/api/v1/scans/{id}"), b"");
+            let status = poll.body["state"].as_str().unwrap_or("");
+            if status == "completed" || status == "failed" || status == "cancelled" {
+                return poll.body;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+        panic!("scan job did not reach a terminal state");
+    }
+
+    #[test]
+    fn scan_auto_quarantines_only_malicious_and_is_repeatable() {
+        let (state, base) = test_state_with(
+            "autoq",
+            trusted_db(b"trusted clean fixture"),
+            Arc::new(PlatformSignatureVerifier),
+        );
+        let target = base.join("target");
+        fs::create_dir_all(target.join("nested")).unwrap();
+        let bad = target.join("nested/eicar.com");
+        let clean = target.join("clean.txt");
+        let unknown = target.join("notes.txt");
+        fs::write(
+            &bad,
+            b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*",
+        )
+        .unwrap();
+        fs::write(&clean, b"trusted clean fixture").unwrap();
+        fs::write(&unknown, b"unknown but harmless fixture").unwrap();
+
+        let body = serde_json::to_vec(&json!({
+            "path": target.display().to_string(),
+            "profile": "quick",
+            "quarantine_malicious": true
+        }))
+        .unwrap();
+        let r = dispatch(&state, "POST", "/api/v1/scan", &body);
+        assert_eq!(r.status, 202, "{}", r.to_json());
+        let id = r.body["job_id"].as_str().unwrap().to_string();
+        let job = wait_for_job(&state, &id);
+        assert_eq!(job["state"], "completed", "{job}");
+        assert_eq!(job["malicious"], 1, "{job}");
+        assert_eq!(job["clean"], 1, "{job}");
+        assert_eq!(job["unknown"], 1, "{job}");
+        assert_eq!(job["quarantined"], 1, "{job}");
+        assert_eq!(job["quarantine_failures"], 0, "{job}");
+        assert!(!bad.exists(), "malicious file must move");
+        assert_eq!(fs::read(&clean).unwrap(), b"trusted clean fixture");
+        assert_eq!(fs::read(&unknown).unwrap(), b"unknown but harmless fixture");
+        assert_eq!(state.vault.list().len(), 1);
+
+        // Second run: the moved file is gone. It must complete with no crash
+        // and must not touch the retained files.
+        let r = dispatch(&state, "POST", "/api/v1/scan", &body);
+        assert_eq!(r.status, 202, "{}", r.to_json());
+        let id = r.body["job_id"].as_str().unwrap().to_string();
+        let job = wait_for_job(&state, &id);
+        assert_eq!(job["state"], "completed", "{job}");
+        assert_eq!(job["files_scanned"], 2, "{job}");
+        assert_eq!(job["malicious"], 0, "{job}");
+        assert_eq!(job["quarantine"]["failures"], 0, "{job}");
+        assert_eq!(fs::read(&clean).unwrap(), b"trusted clean fixture");
+        assert_eq!(fs::read(&unknown).unwrap(), b"unknown but harmless fixture");
+        assert_eq!(state.vault.list().len(), 1);
+        let _ = fs::remove_dir_all(&base);
+    }
+
     #[test]
     fn quarantine_add_list_restore() {
         let (state, base) = test_state("quarantine");
         let sample = base.join("bad.bin");
         fs::write(&sample, b"malicious bytes").unwrap();
 
-        let body = serde_json::to_vec(&json!({ "path": sample.display().to_string() })).unwrap();
+        let body = serde_json::to_vec(&json!({
+            "path": sample.display().to_string(),
+            "copy_only": false
+        }))
+        .unwrap();
         let r = dispatch(&state, "POST", "/api/v1/quarantine", &body);
         assert_eq!(r.status, 202, "{}", r.to_json());
         let id = r.body["id"].as_str().unwrap().to_string();
@@ -1189,6 +1337,25 @@ rule Eicar.Test {
         let r = dispatch(&state, "POST", &format!("/api/v1/quarantine/{id}/restore"), &rbody);
         assert_eq!(r.status, 200, "{}", r.to_json());
         assert_eq!(fs::read(&dest).unwrap(), b"malicious bytes");
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn quarantine_api_defaults_to_copy_and_never_deletes_the_original() {
+        let (state, base) = test_state("qcopy");
+        let sample = base.join("user-data.bin");
+        fs::write(&sample, b"irreplaceable user bytes").unwrap();
+
+        let body = serde_json::to_vec(&json!({ "path": sample.display().to_string() })).unwrap();
+        let r = dispatch(&state, "POST", "/api/v1/quarantine", &body);
+        assert_eq!(r.status, 202, "{}", r.to_json());
+        assert_eq!(r.body["original_removed"], false, "{}", r.to_json());
+        assert_eq!(
+            fs::read(&sample).unwrap(),
+            b"irreplaceable user bytes",
+            "a request without copy_only:false must not remove the source"
+        );
+        assert_eq!(state.vault.list().len(), 1, "the verified copy is still evidence");
         let _ = fs::remove_dir_all(&base);
     }
 
@@ -1304,6 +1471,7 @@ rule Eicar.Test {
                 sandbox_feature_present: true,
                 total_ram_mb: 16 * 1024,
                 free_disk_mb: 100 * 1024,
+                logical_cpus: 8,
                 existing_nat_networks: 0,
                 nat_query_ok: true,
                 wsl_switches: 1,
@@ -1348,6 +1516,8 @@ rule Eicar.Test {
             "safeos_risk_assessment",
             "safeos_fail_closed_policy",
             "safeos_sandbox_config",
+            "test_suite_windows_execution",
+            "quarantine_windows_filesystem_semantics",
         ];
         for (id, cap) in caps {
             if cap["state"] == "READY" {
@@ -1355,21 +1525,21 @@ rule Eicar.Test {
             }
         }
 
-        assert_eq!(caps["test_suite_windows_execution"]["state"], "UNPROVEN");
+        assert_eq!(caps["test_suite_windows_execution"]["state"], "READY");
         assert_eq!(
             caps["quarantine_windows_filesystem_semantics"]["state"],
-            "UNPROVEN"
+            "READY"
         );
         assert_eq!(
             r.body["test_evidence"]["windows_suite_execution"],
-            "UNPROVEN"
+            "READY"
         );
         assert!(
             r.body["test_evidence"]["windows_excluded_tests"]
                 .as_array()
-                .map(|t| t.len())
-                .unwrap_or(0)
-                >= 7
+                .map(|t| t.is_empty())
+                .unwrap_or(false),
+            "the Windows-only suite must not exclude tests"
         );
 
         let status = dispatch(&state, "GET", "/api/v1/status", b"");

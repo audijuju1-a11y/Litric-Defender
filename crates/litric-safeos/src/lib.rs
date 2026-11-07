@@ -24,12 +24,14 @@
 //!   without explicit approval.
 
 pub mod broker;
+pub mod governor;
 pub mod journal;
 pub mod model;
 pub mod policy;
 pub mod risk;
 pub mod sandbox;
 
+pub use governor::{GovernorDecision, ResourcePlan, ResourceRequest};
 pub use model::{BackendStatus, Blocker, ExecutionLevel, HostFacts, Readiness};
 pub use policy::{Action, BackendSet, Decision};
 pub use risk::{ApplicationFacts, HashTrust, RiskAssessment};

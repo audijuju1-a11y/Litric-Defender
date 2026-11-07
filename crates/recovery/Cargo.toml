@@ -1,0 +1,9 @@
+[package]
+name = "recovery"
+version = "0.1.0"
+edition = "2021"
+description = "Litric Recovery Vault: content-addressed, integrity-verified file version store"
+license = "LicenseRef-Proprietary"
+
+[dependencies]
+sha2 = "0.10"

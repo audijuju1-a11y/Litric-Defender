@@ -1,0 +1,9 @@
+[package]
+name = "peanalysis"
+version = "0.1.0"
+edition = "2021"
+description = "Litric PE analysis: bounds-checked parser, explainable multi-signal risk scoring, synthetic PE builder for tests"
+license = "LicenseRef-Proprietary"
+
+[dependencies]
+aho-corasick = "1"

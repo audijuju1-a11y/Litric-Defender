@@ -170,10 +170,11 @@ fn quarantine_add_then_list_round_trip() {
         sample.to_str().unwrap(),
         "--threat",
         "Test.Sample",
+        "--remove-original",
     ]);
     assert!(add.status.success(), "stderr: {}", stderr(&add));
     assert!(stdout(&add).contains("quarantined"));
-    assert!(!sample.exists(), "original must be moved into the vault");
+    assert!(!sample.exists(), "--remove-original must move it into the vault");
 
     let list = d.run(&["quarantine", "list"]);
     assert!(list.status.success(), "stderr: {}", stderr(&list));
@@ -181,6 +182,34 @@ fn quarantine_add_then_list_round_trip() {
     assert!(text.contains("Test.Sample"), "output: {text}");
     assert!(text.contains("sample.bin"), "output: {text}");
     assert!(text.contains("sha256"), "output: {text}");
+}
+
+#[test]
+fn quarantine_add_defaults_to_copy_and_leaves_the_original() {
+    let d = start("qcopycli");
+    let dir = d.workdir("files");
+    let sample = dir.join("keep-me.bin");
+    fs::write(&sample, b"irreplaceable user bytes").unwrap();
+
+    let add = d.run(&[
+        "quarantine",
+        "add",
+        sample.to_str().unwrap(),
+        "--threat",
+        "Test.Copy",
+    ]);
+    assert!(add.status.success(), "stderr: {}", stderr(&add));
+    assert!(
+        stdout(&add).contains("original removed: false"),
+        "stdout: {}",
+        stdout(&add)
+    );
+    assert_eq!(
+        fs::read(&sample).unwrap(),
+        b"irreplaceable user bytes",
+        "quarantine add without --remove-original must not delete the source"
+    );
+    assert!(stdout(&d.run(&["quarantine", "list"])).contains("Test.Copy"));
 }
 
 #[test]
@@ -255,9 +284,6 @@ fn safeos_status_reports_unavailable_backends_honestly() {
     let text = stdout(&out);
     assert!(text.contains("UNAVAILABLE"), "output: {text}");
     assert!(text.contains("NOT COLLECTED"), "output: {text}");
-    #[cfg(not(windows))]
-    assert!(text.contains("NOT IMPLEMENTED"), "output: {text}");
-    #[cfg(windows)]
     assert!(
         text.contains("sandbox launch: implemented"),
         "output: {text}"
@@ -330,6 +356,7 @@ fn quarantine_lifecycle_restore_purge_and_terminal_errors() {
         sample.to_str().unwrap(),
         "--threat",
         "Test.Life",
+        "--remove-original",
     ]);
     assert!(add.status.success(), "stderr: {}", stderr(&add));
     let add_text = stdout(&add);

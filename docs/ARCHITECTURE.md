@@ -3,7 +3,7 @@
 ## 1. Shape of the system
 
 ```
-┌──────────────────────────── portable, tested here ───────────────────────────┐
+┌─────────────── detection core (no OS dependency), tested ────────────────────┐
 │                                                                              │
 │  litric-core                                                                 │
 │   ├── bytes / hash / entropy      total, bounds-checked primitives           │
@@ -20,7 +20,7 @@
               │                                        ▲
               │ verdicts, evidence, actions            │ events (ETW / simulator)
               ▼                                        │
-┌──────────────────────── Windows host (planned) ─────┴────────────────────────┐
+┌──────────── Windows host (partially implemented) ─────┴──────────────────────┐
 │  litric-service: SCM service, IPC, policy, scheduling, update client         │
 │  litric-sensor:  ETW Kernel-Process / Kernel-File consumer, AMSI provider    │
 │  litric-ui:      WinUI 3 shell bound to the service (no mock data)           │
@@ -29,9 +29,9 @@
 ```
 
 The split is deliberate: **everything that decides whether a file is dangerous
-lives in a portable crate with no OS dependency**, so it can be tested on any
-host and reused unchanged by the Windows service. The Windows layer is a sensor
-and an actuator; it holds no detection logic.
+lives in a crate with no OS dependency**, so it stays unit-testable and is reused
+unchanged by the Windows service. The Windows layer is a sensor and an actuator;
+it holds no detection logic.
 
 ## 2. Analysis pipeline
 

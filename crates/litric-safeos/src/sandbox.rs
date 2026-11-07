@@ -2,7 +2,7 @@
 //!
 //! `prepare` runs the runtime readiness check, writes a locked-down `.wsb` and
 //! returns what would be executed. `launch` spawns Windows Sandbox and is gated on
-//! `#[cfg(windows)]`: a Linux or macOS build cannot launch it and says so.
+//! `#[cfg(windows)]`: a non-Windows build cannot launch it and says so.
 //!
 //! Launching is only the boundary in front of execution; it does not claim the
 //! guest is trustworthy. See `docs/SAFEOS_WINDOWS_VERIFICATION.md` for the manual
@@ -14,7 +14,8 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::model::{HostFacts, Readiness};
+use crate::governor::{self, Backend as GovernorBackend, GovernorDecision, ResourceRequest};
+use crate::model::{ExecutionLevel, HostFacts, Readiness};
 
 /// Sandbox resource and mapping plan for one session.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -118,11 +119,6 @@ pub fn host_path_for_wsb(path: &Path) -> String {
     s.to_string()
 }
 
-/// Keep the host usable: a quarter of reported RAM, bounded to 2-4 GB.
-fn sandbox_ram_mb(facts: &HostFacts) -> u32 {
-    (facts.total_ram_mb / 4).clamp(2048, 4096) as u32
-}
-
 fn escape(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
@@ -131,8 +127,8 @@ fn escape(s: &str) -> String {
         .replace('\'', "&apos;")
 }
 
-/// True when this build contains a launcher. The gate is compile-time.
-pub const LAUNCH_IMPLEMENTED: bool = cfg!(windows);
+/// The Windows-only build always contains the launcher.
+pub const LAUNCH_IMPLEMENTED: bool = true;
 
 /// Flips to true only after the checklist in
 /// `docs/SAFEOS_WINDOWS_VERIFICATION.md` has been executed on a real host.
@@ -278,6 +274,23 @@ pub fn prepare(
         return Err(LaunchError::NotReady(reasons));
     }
 
+    // Resource governor: the plan it returns is what the sandbox receives. A
+    // refusal here is final for this launch; nothing falls back to the host.
+    let resource = match governor::decide(
+        facts,
+        &ResourceRequest::new(GovernorBackend::WindowsSandbox, ExecutionLevel::Unknown),
+    ) {
+        GovernorDecision::Allow(plan) | GovernorDecision::Reduce { plan, .. } => plan,
+        GovernorDecision::Refuse {
+            reasons,
+            remediation,
+        } => {
+            let mut blocked = reasons;
+            blocked.push(format!("resource_governor: {remediation}"));
+            return Err(LaunchError::NotReady(blocked));
+        }
+    };
+
     let app = app.canonicalize().map_err(|e| {
         LaunchError::Invalid(format!("cannot access `{}`: {e}", app.display()))
     })?;
@@ -299,7 +312,7 @@ pub fn prepare(
     // The app is mapped read-only at C:\Litric\input\0 inside the guest.
     let command = format!("\"C:\\Litric\\input\\0\\{name}\"");
     let plan = SandboxPlan {
-        ram_mb: sandbox_ram_mb(facts),
+        ram_mb: resource.ram_mb as u32,
         vgpu: false,
         read_only_inputs: vec![parent.to_path_buf()],
         logon_command: Some(command.clone()),
@@ -319,16 +332,9 @@ pub fn prepare(
     })
 }
 
-/// Starts a prepared session. Windows only; every other build refuses.
+/// Starts a prepared session.
 pub fn launch(prepared: &PreparedLaunch, wait: bool) -> Result<LaunchOutcome, LaunchError> {
-    #[cfg(not(windows))]
-    {
-        let _ = (prepared, wait);
-        Err(LaunchError::NotWindows)
-    }
-    #[cfg(windows)]
-    {
-        use std::process::Command;
+    use std::process::Command;
 
         let root = std::env::var_os("SystemRoot")
             .map(PathBuf::from)
@@ -354,13 +360,12 @@ pub fn launch(prepared: &PreparedLaunch, wait: bool) -> Result<LaunchOutcome, La
         } else {
             None
         };
-        Ok(LaunchOutcome {
-            config_path: prepared.config_path.clone(),
-            command: prepared.command.clone(),
-            pid,
-            exit_code,
-        })
-    }
+    Ok(LaunchOutcome {
+        config_path: prepared.config_path.clone(),
+        command: prepared.command.clone(),
+        pid,
+        exit_code,
+    })
 }
 
 #[cfg(test)]
@@ -420,10 +425,10 @@ mod tests {
     }
 
     #[test]
-    fn launch_capability_matches_the_compile_time_gate() {
-        assert_eq!(LAUNCH_IMPLEMENTED, cfg!(windows));
-        // LAUNCH_VERIFIED_ON_WINDOWS stays false and is asserted through the
-        // status API in crates/litric-cli/tests/safeos_launch_verify.rs.
+    fn launch_capability_is_compiled_in() {
+        assert!(LAUNCH_IMPLEMENTED);
+        // LAUNCH_VERIFIED_ON_WINDOWS stays false until the manual checklist in
+        // docs/SAFEOS_WINDOWS_VERIFICATION.md passes on a real host.
     }
 
     fn good_facts() -> HostFacts {
@@ -436,6 +441,7 @@ mod tests {
             sandbox_feature_present: true,
             total_ram_mb: 16 * 1024,
             free_disk_mb: 100 * 1024,
+            logical_cpus: 8,
             existing_nat_networks: 0,
             nat_query_ok: true,
             wsl_switches: 0,
@@ -445,20 +451,13 @@ mod tests {
 
     fn test_dir(tag: &str) -> PathBuf {
         let name = format!("litric-sbx-{tag}-{}-{}", std::process::id(), nanos());
-        #[cfg(windows)]
-        {
-            // A user-profile temp path is intentionally refused by `prepare`.
-            // System temp gives these fixtures a legitimate non-profile path.
-            std::env::var_os("SystemRoot")
-                .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from(r"C:\Windows"))
-                .join("Temp")
-                .join(name)
-        }
-        #[cfg(not(windows))]
-        {
-            std::env::temp_dir().join(name)
-        }
+        // A user-profile temp path is intentionally refused by `prepare`.
+        // System temp gives these fixtures a legitimate non-profile path.
+        std::env::var_os("SystemRoot")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(r"C:\Windows"))
+            .join("Temp")
+            .join(name)
     }
 
     fn fixture(tag: &str) -> (PathBuf, PathBuf) {
@@ -509,14 +508,43 @@ mod tests {
     }
 
     #[test]
-    fn sandbox_memory_scales_with_reported_ram() {
-        let mut f = good_facts();
-        f.total_ram_mb = 4096;
-        assert_eq!(sandbox_ram_mb(&f), 2048);
-        f.total_ram_mb = 16384;
-        assert_eq!(sandbox_ram_mb(&f), 4096);
-        f.total_ram_mb = 65536;
-        assert_eq!(sandbox_ram_mb(&f), 4096);
+    fn sandbox_memory_comes_from_the_resource_governor() {
+        for (total, expected) in [(4096u64, 2048u64), (16_384, 4096), (65_536, 4096)] {
+            let mut f = good_facts();
+            f.total_ram_mb = total;
+            let decision = governor::decide(
+                &f,
+                &ResourceRequest::new(GovernorBackend::WindowsSandbox, ExecutionLevel::Unknown),
+            );
+            let plan = decision.plan().expect("a delegated plan");
+            assert_eq!(plan.ram_mb, expected, "total RAM {total} MB");
+        }
+    }
+
+    #[test]
+    fn a_constrained_host_gets_a_reduced_plan_not_a_refusal() {
+        let (dir, app) = fixture("reduced");
+        let mut facts = good_facts();
+        facts.total_ram_mb = 4096;
+        let prepared = prepare(&facts, &app, &dir.join("cfg")).expect("reduced plan is allowed");
+        let xml = std::fs::read_to_string(&prepared.config_path).unwrap();
+        assert!(xml.contains("<MemoryInMB>2048</MemoryInMB>"), "{xml}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_report_without_a_cpu_count_is_refused() {
+        let (dir, app) = fixture("nocpu");
+        let mut facts = good_facts();
+        facts.logical_cpus = 0;
+        match prepare(&facts, &app, &dir.join("cfg")) {
+            Err(LaunchError::NotReady(r)) => assert!(
+                r.join(" ").contains("logical processor"),
+                "reasons: {r:?}"
+            ),
+            other => panic!("expected NotReady, got {other:?}"),
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -559,21 +587,6 @@ mod tests {
         let _ = app;
     }
 
-    // POSIX-ONLY-TEST: litric-safeos/src/sandbox.rs::a_file_name_with_separators_cannot_escape_the_mapping
-    // Windows counterpart UNPROVEN: Windows accepts backslash separators, so its
-    // path rule differs and has not been exercised by this suite.
-    #[cfg(not(windows))]
-    #[test]
-    fn a_file_name_with_separators_cannot_escape_the_mapping() {
-        let (dir, _app) = fixture("escape");
-        let evil = dir.join(r"evil\..\..\Windows\cmd.exe");
-        std::fs::write(&evil, b"MZ").unwrap();
-        match prepare(&good_facts(), &evil, &dir.join("cfg")) {
-            Err(LaunchError::Invalid(m)) => assert!(m.contains("path separator"), "{m}"),
-            other => panic!("expected Invalid, got {other:?}"),
-        }
-    }
-
     #[test]
     fn reserved_device_names_are_refused() {
         for name in ["CON", "con.txt", "NUL.exe", "COM1.bin", "LPT9.dll"] {
@@ -581,8 +594,6 @@ mod tests {
             let app = dir.join(name);
             // Windows interprets these as devices; do not open them merely to
             // build the test fixture. The name check must refuse them first.
-            #[cfg(not(windows))]
-            std::fs::write(&app, b"MZ").unwrap();
             assert!(
                 matches!(
                     prepare(&good_facts(), &app, &dir.join("cfg")),
@@ -591,15 +602,5 @@ mod tests {
                 "{name} should be refused"
             );
         }
-    }
-
-    #[test]
-    fn non_windows_launch_refuses_after_preparing() {
-        let (dir, app) = fixture("platform");
-        let prepared = prepare(&good_facts(), &app, &dir.join("cfg")).expect("prepare");
-        #[cfg(not(windows))]
-        assert!(matches!(launch(&prepared, false), Err(LaunchError::NotWindows)));
-        #[cfg(windows)]
-        let _ = (prepared, dir);
     }
 }

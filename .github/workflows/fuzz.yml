@@ -1,0 +1,76 @@
+name: parser-fuzz
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Nightly at 03:17 UTC; independent of the product test workflow.
+    - cron: "17 3 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    name: fuzz_${{ matrix.target }}
+    runs-on: windows-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [pe, zip, vba, xlm]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install nightly GNU toolchain
+        run: |
+          rustup toolchain install nightly-x86_64-pc-windows-gnu --profile minimal
+          rustup toolchain list
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --version 0.13.2 --locked
+
+      - name: Install MSYS2 UCRT64 GCC
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: false
+          install: mingw-w64-ucrt-x86_64-gcc
+
+      - name: Put the UCRT64 toolchain on PATH
+        shell: bash
+        run: |
+          # The MSYS2 setup action does not add UCRT64 to the PATH of non-MSYS2
+          # shells. The local GNU build was validated with this exact ABI.
+          test -x /c/msys64/ucrt64/bin/g++.exe
+          echo "C:/msys64/ucrt64/bin" >> "$GITHUB_PATH"
+          echo "C:/msys64/usr/bin" >> "$GITHUB_PATH"
+
+      - name: Verify MinGW C++ compiler
+        run: |
+          g++ --version
+          ar --version | head -1
+
+      - name: Build MinGW libFuzzer runtime
+        working-directory: fuzz
+        run: bash build_libfuzzer_mingw.sh
+
+      - name: Build fuzz target
+        working-directory: fuzz
+        run: cargo fuzz build fuzz_${{ matrix.target }} --sanitizer none
+
+      - name: Run bounded campaign
+        working-directory: fuzz
+        # Duration, limits, seed refresh and artifact checks live in the script.
+        run: bash run_campaign.sh "${{ matrix.target }}"
+
+      - name: Upload campaign evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-${{ matrix.target }}
+          path: |
+            target/evidence/phase1/fuzz/**
+          if-no-files-found: warn

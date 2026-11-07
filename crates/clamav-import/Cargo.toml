@@ -1,0 +1,16 @@
+[package]
+name = "clamav-import"
+version = "0.1.0"
+edition = "2021"
+description = "Litric ClamAV signature compatibility adapter (offline importer). Not a scanner; contains no ClamAV code."
+license = "LicenseRef-Proprietary"
+
+[dependencies]
+sigdb = { path = "../sigdb" }
+
+[[bin]]
+name = "litric-clamav-import"
+path = "src/main.rs"
+
+[dev-dependencies]
+ed25519-dalek = "2"

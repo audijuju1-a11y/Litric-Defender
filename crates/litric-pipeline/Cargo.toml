@@ -1,0 +1,20 @@
+[package]
+name = "litric-pipeline"
+description = "Litric detection pipeline: native engine + ClamAV-derived signature adapter + optional rule module, aggregated into one verdict"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+litric-core = { path = "../litric-core" }
+scanner = { path = "../scanner" }
+sigdb = { path = "../sigdb" }
+litric-wintrust = { path = "../litric-wintrust" }
+
+[dev-dependencies]
+ed25519-dalek.workspace = true
+clamav-import = { path = "../clamav-import" }
+peanalysis = { path = "../peanalysis" }
+md-5 = "0.10"
+zip.workspace = true

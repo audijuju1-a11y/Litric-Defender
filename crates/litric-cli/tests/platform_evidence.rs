@@ -1,21 +1,15 @@
-//! Mechanical evidence-provenance checks.
+//! Mechanical evidence-provenance checks for the Windows-only build.
 //!
-//! The native suite runs on Linux; the Windows-target suite also runs under
-//! Wine, which is not native Windows. A test may be Windows-excluded only if it
-//! carries an explicit `// POSIX-ONLY-TEST:` or `// WINDOWS-EXCLUDED-TEST:`
-//! marker, appears in the readiness gate's `test_evidence`, and appears in the
-//! same list in `docs/SAFEOS_READINESS.md`. This file fails when any of those
-//! drift apart.
-//!
-//! This file itself is portable: it only reads source/doc text and the gate JSON.
+//! The readiness gate's `test_evidence`, `docs/SAFEOS_READINESS.md` and the
+//! source tree must agree. This test also fails if a POSIX-only test gate or an
+//! exclusion marker is reintroduced in this Windows-only tree.
 
-use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use litric_service::api::{
     readiness_json, SUITE_EXECUTED_ON, WINDOWS_EXCLUDED_TESTS, WINDOWS_SUITE_EXECUTION,
-    WINDOWS_SUITE_REASON, WINE_SUITE_EXECUTED_ON, WINE_SUITE_RESULT, WINE_SUITE_SCOPE,
+    WINDOWS_SUITE_REASON,
 };
 use serde_json::Value;
 
@@ -41,65 +35,6 @@ fn collect_rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-fn test_name(lines: &[&str], test_index: usize) -> Option<String> {
-    for line in &lines[test_index + 1..] {
-        let trimmed = line.trim();
-        if let Some(rest) = trimmed.strip_prefix("fn ") {
-            return rest
-                .split('(')
-                .next()
-                .map(str::trim)
-                .filter(|name| !name.is_empty())
-                .map(str::to_string);
-        }
-    }
-    None
-}
-
-/// Tests that cannot run on Windows: either the whole file is excluded, or a
-/// `#[cfg(unix)]` / `#[cfg(not(windows))]` attribute sits immediately above the
-/// test. These are exactly the tests that need POSIX-ONLY markers.
-fn windows_excluded_tests(src: &str) -> Vec<String> {
-    let lines: Vec<&str> = src.lines().collect();
-    let file_wide = lines.iter().any(|line| {
-        let trimmed = line.trim();
-        trimmed == "#![cfg(not(windows))]" || trimmed == "#![cfg(unix)]"
-    });
-    let mut out = Vec::new();
-    for (i, line) in lines.iter().enumerate() {
-        if line.trim() != "#[test]" {
-            continue;
-        }
-        let mut excluded = file_wide;
-        for previous in lines[i.saturating_sub(6)..i].iter() {
-            let trimmed = previous.trim();
-            if trimmed == "#[cfg(unix)]" || trimmed == "#[cfg(not(windows))]" {
-                excluded = true;
-            }
-        }
-        if excluded {
-            if let Some(name) = test_name(&lines, i) {
-                out.push(name);
-            }
-        }
-    }
-    out
-}
-
-fn exclusion_markers(src: &str) -> Vec<String> {
-    src.lines()
-        .filter_map(|line| {
-            let trimmed = line.trim();
-            trimmed
-                .strip_prefix("// POSIX-ONLY-TEST:")
-                .or_else(|| trimmed.strip_prefix("// WINDOWS-EXCLUDED-TEST:"))
-        })
-        .map(str::trim)
-        .filter(|id| !id.is_empty())
-        .map(str::to_string)
-        .collect()
-}
-
 fn doc_evidence() -> Value {
     let after_begin = READINESS_DOC
         .split(EVIDENCE_BEGIN)
@@ -120,58 +55,54 @@ fn doc_evidence() -> Value {
 }
 
 #[test]
-fn posix_labels_match_source_gate_and_doc() {
+fn readiness_doc_matches_gate_and_no_posix_gate_returns() {
     let root = repo_root();
     let mut files = Vec::new();
     collect_rust_files(&root.join("crates"), &mut files);
-
-    let mut marked = BTreeSet::new();
-    let mut excluded = BTreeSet::new();
     for path in files {
         let src = fs::read_to_string(&path).expect("read Rust source");
-        let relative = path
-            .strip_prefix(&root)
-            .expect("source is under the workspace")
-            .to_string_lossy()
-            .replace('\\', "/");
-        let relative = relative.strip_prefix("crates/").unwrap_or(&relative);
-        for marker in exclusion_markers(&src) {
-            marked.insert(marker);
-        }
-        for name in windows_excluded_tests(&src) {
-            excluded.insert(format!("{relative}::{name}"));
+        for (lineno, line) in src.lines().enumerate() {
+            let trimmed = line.trim();
+            if trimmed == "#[cfg(unix)]"
+                || trimmed == "#[cfg(not(windows))]"
+                || trimmed == "#![cfg(unix)]"
+                || trimmed == "#![cfg(not(windows))]"
+            {
+                panic!(
+                    "{}:{} still gates a non-Windows build; this repository is Windows-only",
+                    path.display(),
+                    lineno + 1
+                );
+            }
+            if trimmed.starts_with("// POSIX-ONLY-TEST:")
+                || trimmed.starts_with("// WINDOWS-EXCLUDED-TEST:")
+            {
+                panic!(
+                    "{}:{} still carries a platform-exclusion marker",
+                    path.display(),
+                    lineno + 1
+                );
+            }
         }
     }
 
-    assert_eq!(
-        marked, excluded,
-        "every Windows-excluded test must carry one exclusion marker, and every marker must name an excluded test"
-    );
-
-    let expected: BTreeSet<String> = WINDOWS_EXCLUDED_TESTS
-        .iter()
-        .map(|id| id.to_string())
-        .collect();
-    assert_eq!(
-        marked, expected,
-        "the WINDOWS_EXCLUDED_TESTS constant must match the source markers exactly"
+    assert!(
+        WINDOWS_EXCLUDED_TESTS.is_empty(),
+        "the Windows-only suite must not exclude tests"
     );
 
     let gate = readiness_json();
     let evidence = &gate["test_evidence"];
-    let gate_tests: BTreeSet<String> = evidence["windows_excluded_tests"]
-        .as_array()
-        .expect("gate windows_excluded_tests array")
-        .iter()
-        .map(|v| v.as_str().expect("test id string").to_string())
-        .collect();
-    assert_eq!(gate_tests, expected, "gate exclusion list drifted from source");
     assert_eq!(evidence["suite_executed_on"], SUITE_EXECUTED_ON);
-    assert_eq!(evidence["wine_suite_executed_on"], WINE_SUITE_EXECUTED_ON);
-    assert_eq!(evidence["wine_suite_result"], WINE_SUITE_RESULT);
-    assert_eq!(evidence["wine_suite_scope"], WINE_SUITE_SCOPE);
     assert_eq!(evidence["windows_suite_execution"], WINDOWS_SUITE_EXECUTION);
     assert_eq!(evidence["windows_suite_reason"], WINDOWS_SUITE_REASON);
+    assert_eq!(
+        evidence["windows_excluded_tests"]
+            .as_array()
+            .expect("gate windows_excluded_tests array")
+            .len(),
+        0
+    );
 
     let doc = doc_evidence();
     assert_eq!(
@@ -201,7 +132,9 @@ fn unverified_capabilities_are_derived_from_the_gate() {
         } else {
             let allowed = unverified
                 .get(name)
-                .unwrap_or_else(|| panic!("non-READY capability {name} is missing from the doc/gate unverified list"))
+                .unwrap_or_else(|| {
+                    panic!("non-READY capability {name} is missing from the doc/gate unverified list")
+                })
                 .as_array()
                 .expect("unverified states array");
             assert!(

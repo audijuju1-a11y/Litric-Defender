@@ -199,13 +199,145 @@ rule Script.PowerShellDownloadCradle {
     strings:
         $dl1 = "downloadstring" nocase
         $dl2 = "downloadfile" nocase
-        $dl3 = "invoke-webrequest" nocase
+        // Require command syntax: a module manifest that merely lists the
+        // exported cmdlet names must not look like a download cradle.
+        $dl3 = "invoke-webrequest " nocase
         $dl4 = "net.webclient" nocase
-        $ex1 = "invoke-expression" nocase
+        $ex1 = "invoke-expression " nocase
+        $ex4 = "invoke-expression(" nocase
         $ex2 = "iex " nocase
         $ex3 = "| iex" nocase
     condition:
-        ($dl1 or $dl2 or $dl3 or $dl4) and ($ex1 or $ex2 or $ex3)
+        ($dl1 or $dl2 or $dl3 or $dl4) and ($ex1 or $ex4 or $ex2 or $ex3)
+}
+
+// ---------------------------------------------------------------------------
+// Office macros. These run against decompressed VBA module source, never
+// against the OLE2 container bytes, so a match means the macro itself does it.
+// ---------------------------------------------------------------------------
+
+rule Macro.AutoExecLauncher {
+    meta:
+        description = "Macro auto-exec handler combined with shell, download or PowerShell execution"
+        family      = "Execution.Macro"
+        severity    = "high"
+        mitre       = "T1204.002,T1059.005"
+        author      = "Litric Labs"
+        tags        = "macro,dropper"
+    strings:
+        $auto1 = "auto_open" nocase
+        $auto2 = "autoopen" nocase
+        $auto3 = "document_open" nocase
+        $auto4 = "workbook_open" nocase
+        $shell = "shell" nocase
+        $ps    = "powershell" nocase
+        $dl    = "urldownloadtofile" nocase
+        $xml   = "msxml2.xmlhttp" nocase
+    condition:
+        ($auto1 or $auto2 or $auto3 or $auto4) and ($shell or $ps or $dl or $xml)
+}
+
+rule Macro.ShellExecution {
+    meta:
+        description = "Macro creates a WScript.Shell object and runs a command"
+        family      = "Execution.Macro"
+        severity    = "high"
+        mitre       = "T1204.002,T1059.005"
+        author      = "Litric Labs"
+        tags        = "macro,shell"
+    strings:
+        $ws  = "wscript.shell" nocase
+        // VBA creates the object with CreateObject. PowerShell legitimately
+        // uses `New-Object -ComObject "WScript.Shell"` for shortcuts, and a
+        // variable named `$shell` must not satisfy a `shell ` substring.
+        $co  = "createobject" nocase
+        $run = ".run " nocase
+    condition:
+        $ws and $co and $run
+}
+
+rule Macro.RemotePayload {
+    meta:
+        description = "Macro uses a download primitive to fetch a remote payload"
+        family      = "Execution.Macro"
+        severity    = "high"
+        mitre       = "T1204.002,T1105"
+        author      = "Litric Labs"
+        tags        = "macro,download"
+    strings:
+        $a = "urldownloadtofile" nocase
+        $b = "msxml2.serverxmlhttp" nocase
+        $c = "msxml2.xmlhttp" nocase
+        $d = "winhttp.winhttprequest" nocase
+    condition:
+        $a or $b or $c or $d
+}
+
+// ---------------------------------------------------------------------------
+// Excel 4.0 (XLM) macro sheet formulas. Matched against formula text extracted
+// from xl/macrosheets/*.xml or decoded from legacy BIFF5/7/8 FORMULA records,
+// never
+// against the workbook container.
+// ---------------------------------------------------------------------------
+
+rule Xlm.Exec {
+    meta:
+        description = "Excel 4.0 macro sheet calls EXEC to start a program"
+        family      = "Execution.Xlm"
+        severity    = "high"
+        mitre       = "T1204.002,T1059.005"
+        author      = "Litric Labs"
+        tags        = "xlm,macro"
+    strings:
+        $exec = "exec(" nocase
+    condition:
+        $exec
+}
+
+rule Xlm.RegisterCall {
+    meta:
+        description = "Excel 4.0 macro registers and calls a native function"
+        family      = "Execution.Xlm"
+        severity    = "high"
+        mitre       = "T1204.002,T1106"
+        author      = "Litric Labs"
+        tags        = "xlm,macro"
+    strings:
+        $reg  = "register(" nocase
+        $call = "call(" nocase
+    condition:
+        $reg and $call
+}
+
+rule Xlm.FileWrite {
+    meta:
+        description = "Excel 4.0 macro writes a file with FOPEN/FWRITE"
+        family      = "Execution.Xlm"
+        severity    = "high"
+        mitre       = "T1204.002,T1105"
+        author      = "Litric Labs"
+        tags        = "xlm,macro"
+    strings:
+        $open  = "fopen(" nocase
+        $write = "fwrite(" nocase
+    condition:
+        $open and $write
+}
+
+rule Xlm.Download {
+    meta:
+        description = "Excel 4.0 macro uses a download primitive"
+        family      = "Execution.Xlm"
+        severity    = "high"
+        mitre       = "T1204.002,T1105"
+        author      = "Litric Labs"
+        tags        = "xlm,macro"
+    strings:
+        $a = "urldownloadtofile" nocase
+        $b = "msxml2.xmlhttp" nocase
+        $c = "winhttp.winhttprequest" nocase
+    condition:
+        $a or $b or $c
 }
 
 // ---------------------------------------------------------------------------
@@ -222,10 +354,11 @@ rule Persist.RunKeyInstaller {
     strings:
         $run1 = "Software\\Microsoft\\Windows\\CurrentVersion\\Run" wide
         $run2 = "Software\\Microsoft\\Windows\\CurrentVersion\\Run" ascii
+        // Requiring the API call avoids flagging every binary that merely
+        // imports advapi32 and carries the Run-key string as data.
         $reg  = "RegSetValue" nocase
-        $adv  = "advapi32" nocase
     condition:
-        ($run1 or $run2) and ($reg or $adv)
+        ($run1 or $run2) and $reg
 }
 
 rule Persist.ScheduledTaskChain {

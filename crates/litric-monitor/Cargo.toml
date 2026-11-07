@@ -1,0 +1,20 @@
+[package]
+name = "litric-monitor"
+description = "Litric real-time file protection: file-change events -> pipeline scan -> encrypted quarantine, with honest health reporting"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+litric-core = { path = "../litric-core" }
+litric-pipeline = { path = "../litric-pipeline" }
+sigdb = { path = "../sigdb" }
+scanner = { path = "../scanner" }
+notify = { version = "6", default-features = false, features = ["macos_fsevent"] }
+serde_json = "1"
+ctrlc = "3"
+
+[[bin]]
+name = "litric-rtp"
+path = "src/main.rs"

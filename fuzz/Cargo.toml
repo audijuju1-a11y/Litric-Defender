@@ -1,0 +1,51 @@
+[package]
+name = "litric-core-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+# Keep the fuzz project out of the main workspace. It needs nightly and
+# libFuzzer; the product workspace must keep building with stable Rust.
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.litric-core]
+path = "../crates/litric-core"
+
+[[bin]]
+name = "fuzz_pe"
+path = "fuzz_targets/fuzz_pe.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_zip"
+path = "fuzz_targets/fuzz_zip.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_vba"
+path = "fuzz_targets/fuzz_vba.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_xlm"
+path = "fuzz_targets/fuzz_xlm.rs"
+test = false
+doc = false
+bench = false
+
+# A panic must unwind into libFuzzer so the failing input is reported and
+# minimizable; the product release profile uses abort for the shipped binary.
+[profile.release]
+panic = "unwind"

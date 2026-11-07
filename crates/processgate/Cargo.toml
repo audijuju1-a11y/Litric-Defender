@@ -1,0 +1,27 @@
+[package]
+name = "processgate"
+description = "Litric process gate: suspend, identify and block newly started images"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "processgate"
+path = "src/lib.rs"
+
+[[bin]]
+name = "litric-pgate-selftest"
+path = "src/bin/litric-pgate-selftest.rs"
+
+[dependencies]
+litric-core = { path = "../litric-core" }
+serde.workspace = true
+serde_json.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_Threading",
+] }

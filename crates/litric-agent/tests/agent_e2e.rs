@@ -25,21 +25,14 @@ fn nanos() -> u128 {
 
 fn test_base(tag: &str) -> std::path::PathBuf {
     let name = format!("litric-agent-{tag}-{}-{}", std::process::id(), nanos());
-    #[cfg(windows)]
-    {
-        // Wine and Windows put `temp_dir()` under the user profile, which the
-        // sandbox deliberately refuses to map. Use the system temp directory
-        // for fixtures that must look like a non-profile application path.
-        std::env::var_os("SystemRoot")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| std::path::PathBuf::from(r"C:\Windows"))
-            .join("Temp")
-            .join(name)
-    }
-    #[cfg(not(windows))]
-    {
-        std::env::temp_dir().join(name)
-    }
+    // Windows puts `temp_dir()` under the user profile, which the sandbox
+    // deliberately refuses to map. Use the system temp directory for fixtures
+    // that must look like a non-profile application path.
+    std::env::var_os("SystemRoot")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from(r"C:\Windows"))
+        .join("Temp")
+        .join(name)
 }
 
 fn start(tag: &str) -> (server::ServerHandle, std::path::PathBuf) {
@@ -100,6 +93,7 @@ fn write_fixture(path: &Path, nat_ok: bool) {
   "sandbox_feature_present": true,
   "total_ram_mb": 16384,
   "free_disk_mb": 102400,
+  "logical_cpus": 8,
   "existing_nat_networks": 0,
   "nat_query_ok": {nat_ok},
   "wsl_switches": 1,
@@ -145,21 +139,9 @@ fn agent_report_updates_status_but_never_claims_a_launcher() {
         .unwrap();
     assert_eq!(sandbox["host_supported"], true, "status: {status}");
     assert_eq!(status["windows_sandbox_launch_verified"], false);
-    #[cfg(not(windows))]
-    {
-        assert_eq!(sandbox["available"], false, "status: {status}");
-        assert!(
-            sandbox["reason"].as_str().unwrap().contains("launcher is not implemented"),
-            "status: {status}"
-        );
-        assert_eq!(status["windows_sandbox_launch_implemented"], false);
-    }
-    #[cfg(windows)]
-    {
-        // This build contains the launcher, but it has not been verified on
-        // hardware; reporting "implemented" must not become "verified".
-        assert_eq!(status["windows_sandbox_launch_implemented"], true);
-    }
+    // This build contains the launcher, but it has not been verified on
+    // hardware; reporting "implemented" must not become "verified".
+    assert_eq!(status["windows_sandbox_launch_implemented"], true);
 }
 
 #[test]
@@ -248,40 +230,5 @@ fn launch_is_refused_until_facts_are_reported() {
     );
     assert_eq!(code, 409, "body: {body}");
     assert!(body["error"].as_str().unwrap().contains("not ready"));
-}
-
-// POSIX-ONLY-TEST: litric-agent/tests/agent_e2e.rs::launch_refuses_politely_without_a_windows_launcher
-// Windows counterpart UNPROVEN: this asserts the non-Windows 501 launch refusal.
-#[cfg(not(windows))]
-#[test]
-fn launch_refuses_politely_without_a_windows_launcher() {
-    let (handle, token) = start("launch-platform");
-    let addr = handle.addr.to_string();
-    let base = token.parent().unwrap().to_path_buf();
-    let fixture = base.join("facts.json");
-    let app = base.join("sample.exe");
-    write_fixture(&fixture, true);
-    fs::write(&app, b"MZ").unwrap();
-
-    let out = Command::new(env!("CARGO_BIN_EXE_litric-agent"))
-        .args([
-            "--fixture",
-            fixture.to_str().unwrap(),
-            "--addr",
-            &addr,
-            "--token-file",
-            token.to_str().unwrap(),
-        ])
-        .output()
-        .expect("run agent");
-    assert!(out.status.success());
-
-    let (code, body) = post_json(
-        &addr,
-        "/api/v1/safeos/launch",
-        &serde_json::json!({ "path": app.to_str().unwrap() }),
-    );
-    assert_eq!(code, 501, "body: {body}");
-    assert!(body["error"].as_str().unwrap().contains("Windows build"));
 }
 

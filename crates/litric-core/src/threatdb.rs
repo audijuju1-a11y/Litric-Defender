@@ -131,6 +131,72 @@ pub enum DbTrust {
     Unsigned,
 }
 
+/// How a runtime caller decides which database signatures it accepts.
+///
+/// Fail-closed by default: with no pinned key and no explicit development
+/// opt-in, every database is rejected. The fixture key is honoured only when the
+/// operator sets `LITRIC_ALLOW_DEV_DB=1`, and the loaded database is then
+/// reported as [`DbTrust::DevelopmentOnly`] so callers can surface it.
+#[derive(Debug, Clone, Default)]
+pub struct DbTrustPolicy {
+    /// Keys pinned for this deployment (`LITRIC_DB_PUBKEY`).
+    pub production_keys: Vec<VerifyingKey>,
+    /// Explicit opt-in for the public fixture key. Never a default.
+    pub allow_development: bool,
+}
+
+impl DbTrustPolicy {
+    pub fn new(production_keys: Vec<VerifyingKey>, allow_development: bool) -> Self {
+        Self {
+            production_keys,
+            allow_development,
+        }
+    }
+
+    /// Parses a comma- or semicolon-separated list of 64-hex-char Ed25519 public
+    /// keys. A malformed entry is an error: a typo must not silently shrink the
+    /// pinned key set to nothing (which would fail closed, but confusingly).
+    pub fn parse_keys(spec: &str) -> Result<Vec<VerifyingKey>, DbError> {
+        let mut keys = Vec::new();
+        for part in spec.split([',', ';']) {
+            let part = part.trim();
+            if part.is_empty() {
+                continue;
+            }
+            let bytes = hex32(part).ok_or_else(|| {
+                DbError::Invalid(format!(
+                    "pinned public key {part:?} is not exactly 64 hex characters"
+                ))
+            })?;
+            let key = VerifyingKey::from_bytes(&bytes).map_err(|e| {
+                DbError::Invalid(format!("pinned public key {part:?} is invalid: {e}"))
+            })?;
+            keys.push(key);
+        }
+        Ok(keys)
+    }
+
+    /// Builds the policy from the environment of the running process.
+    pub fn from_env() -> Result<Self, DbError> {
+        let production_keys = match std::env::var("LITRIC_DB_PUBKEY") {
+            Ok(spec) => Self::parse_keys(&spec)?,
+            Err(_) => Vec::new(),
+        };
+        let allow_development = std::env::var("LITRIC_ALLOW_DEV_DB")
+            .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+            .unwrap_or(false);
+        Ok(Self {
+            production_keys,
+            allow_development,
+        })
+    }
+
+    /// True when content can be validated without the fixture key.
+    pub fn has_production_key(&self) -> bool {
+        !self.production_keys.is_empty()
+    }
+}
+
 /// A loaded, verified threat database.
 #[derive(Debug)]
 pub struct ThreatDb {
@@ -309,6 +375,31 @@ impl ThreatDb {
         Ok(db)
     }
 
+    /// Loads a database for a runtime binary (`litric`, `litricd`).
+    ///
+    /// The call site no longer chooses trust: pinned keys and the development
+    /// opt-in come from [`DbTrustPolicy::from_env`]. With nothing pinned and no
+    /// opt-in this fails closed, so content signed with the public fixture key
+    /// can never be accepted by accident.
+    pub fn load_for_runtime(dir: &Path, engine_version: &str) -> Result<ThreatDb, DbError> {
+        let policy = DbTrustPolicy::from_env()?;
+        match ThreatDb::open_dir(
+            dir,
+            &policy.production_keys,
+            policy.allow_development,
+            engine_version,
+        ) {
+            Ok(db) => Ok(db),
+            Err(DbError::BadSignature) if !policy.allow_development => Err(DbError::Invalid(
+                "database is not signed by a pinned key; set LITRIC_DB_PUBKEY to this \
+                 deployment's Ed25519 public key (hex), or LITRIC_ALLOW_DEV_DB=1 to load test \
+                 content signed with the public fixture key"
+                    .into(),
+            )),
+            Err(e) => Err(e),
+        }
+    }
+
     /// Atomically installs verified content into `dir`.
     ///
     /// Refuses rollback unless `force` is set. The previous database is retained
@@ -446,6 +537,19 @@ fn to_hex(bytes: &[u8]) -> String {
     s
 }
 
+fn hex32(s: &str) -> Option<[u8; 32]> {
+    if s.len() != 64 {
+        return None;
+    }
+    let mut out = [0u8; 32];
+    for (i, chunk) in s.as_bytes().chunks_exact(2).enumerate() {
+        let hi = (chunk[0] as char).to_digit(16)?;
+        let lo = (chunk[1] as char).to_digit(16)?;
+        out[i] = ((hi << 4) | lo) as u8;
+    }
+    Some(out)
+}
+
 fn hex_to_vec64(s: &str) -> Option<[u8; 64]> {
     if s.len() != 128 {
         return None;
@@ -543,6 +647,52 @@ mod tests {
         let (p, m) = build_signed(&payload(1), &dev_signing_key()).unwrap();
         // No production keys supplied and dev keys disallowed.
         let err = ThreatDb::verify_loaded(&p, &m, &[], false, crate::ENGINE_VERSION).unwrap_err();
+        assert!(matches!(err, DbError::BadSignature));
+    }
+
+    #[test]
+    fn pinned_key_is_accepted_as_production() {
+        let (p, m) = build_signed(&payload(1), &dev_signing_key()).unwrap();
+        // The same bytes are *production* content when the key is pinned.
+        let db = ThreatDb::verify_loaded(
+            &p,
+            &m,
+            &[dev_verifying_key()],
+            false,
+            crate::ENGINE_VERSION,
+        )
+        .expect("pinned key accepted");
+        assert_eq!(db.trust, DbTrust::Production);
+    }
+
+    #[test]
+    fn policy_parses_and_rejects_bad_keys() {
+        let hex = to_hex(dev_verifying_key().as_bytes());
+        let keys = DbTrustPolicy::parse_keys(&format!("  {hex} ; {hex} ,")).unwrap();
+        assert_eq!(keys.len(), 2);
+        assert!(DbTrustPolicy::new(keys, false).has_production_key());
+
+        let short = DbTrustPolicy::parse_keys(&hex[..62]).unwrap_err();
+        assert!(matches!(short, DbError::Invalid(_)));
+        let not_hex = DbTrustPolicy::parse_keys(&"z".repeat(64)).unwrap_err();
+        assert!(matches!(not_hex, DbError::Invalid(_)));
+        assert!(DbTrustPolicy::parse_keys(" , ; ").unwrap().is_empty());
+    }
+
+    #[test]
+    fn runtime_load_fails_closed_without_a_policy() {
+        // `load_for_runtime` reads the process environment, so this exercises the
+        // same decision it makes with no pinned key: dev content is refused.
+        let policy = DbTrustPolicy::new(Vec::new(), false);
+        let (p, m) = build_signed(&payload(1), &dev_signing_key()).unwrap();
+        let err = ThreatDb::verify_loaded(
+            &p,
+            &m,
+            &policy.production_keys,
+            policy.allow_development,
+            crate::ENGINE_VERSION,
+        )
+        .unwrap_err();
         assert!(matches!(err, DbError::BadSignature));
     }
 

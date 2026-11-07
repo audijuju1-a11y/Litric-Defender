@@ -1271,12 +1271,20 @@ struct AcNode {
 #[derive(Debug, Default)]
 struct Ac {
     nodes: Vec<AcNode>,
+    /// Dense transition table (`nodes * 256` entries) built after `build()`.
+    /// Empty when the automaton exceeds `DFA_MAX_NODES`; `search` then uses
+    /// the original failure-link walk. Both paths produce identical matches.
+    dfa: Vec<u32>,
 }
+
+/// 16384 nodes * 256 * 4 bytes = 16 MiB per automaton at most.
+const DFA_MAX_NODES: usize = 16_384;
 
 impl Ac {
     fn new() -> Self {
         Ac {
             nodes: vec![AcNode::default()],
+            dfa: Vec::new(),
         }
     }
 
@@ -1325,9 +1333,53 @@ impl Ac {
                 queue.push_back(child);
             }
         }
+        self.build_dfa();
+    }
+
+    fn build_dfa(&mut self) {
+        self.dfa = Vec::new();
+        let n = self.nodes.len();
+        if n > DFA_MAX_NODES {
+            return;
+        }
+        let mut dfa = vec![0u32; n * 256];
+        let mut queue = std::collections::VecDeque::new();
+        for (b, &c) in &self.nodes[0].next {
+            dfa[*b as usize] = c as u32;
+            queue.push_back(c);
+        }
+        // Breadth-first: a node's failure target is strictly shallower, so its row is complete first.
+        while let Some(node) = queue.pop_front() {
+            let fail = self.nodes[node].fail;
+            for b in 0..256usize {
+                dfa[node * 256 + b] = match self.nodes[node].next.get(&(b as u8)) {
+                    Some(&c) => {
+                        queue.push_back(c);
+                        c as u32
+                    }
+                    None => dfa[fail * 256 + b],
+                };
+            }
+        }
+        self.dfa = dfa;
     }
 
     fn search(&self, hay: &[u8], cb: &mut impl FnMut(usize, usize)) {
+        if !self.dfa.is_empty() {
+            let mut node = 0usize;
+            for (i, &b) in hay.iter().enumerate() {
+                node = self.dfa[node * 256 + b as usize] as usize;
+                for &pid in &self.nodes[node].out {
+                    cb(pid, i);
+                }
+            }
+            return;
+        }
+        self.search_walk(hay, cb);
+    }
+
+    /// Original failure-link walk; the reference behaviour the DFA must match.
+    fn search_walk(&self, hay: &[u8], cb: &mut impl FnMut(usize, usize)) {
         let mut node = 0usize;
         for (i, &b) in hay.iter().enumerate() {
             loop {
@@ -2117,5 +2169,56 @@ rule X {
     fn empty_ruleset_is_safe() {
         let rs = RuleSet::empty();
         assert!(rs.scan(b"anything", None, "binary", "bin").is_empty());
+    }
+}
+
+#[cfg(test)]
+mod ac_equivalence_tests {
+    use super::*;
+
+    /// The dense-DFA search must report exactly the same (pattern, end) pairs as
+    /// the original failure-link walk, including overlapping and nested patterns.
+    #[test]
+    fn dfa_and_failure_link_walk_agree() {
+        let pats: [&[u8]; 8] = [b"he", b"she", b"his", b"hers", b"a", b"aa", b"aaa", b"\x00\xff\x00"];
+        let mut ac = Ac::new();
+        for (i, p) in pats.iter().enumerate() {
+            ac.insert(p, i);
+        }
+        ac.build();
+        assert!(!ac.dfa.is_empty(), "DFA must be built for a small automaton");
+        let hays: Vec<Vec<u8>> = vec![
+            b"ushers and his hershey she aaaa".to_vec(),
+            vec![0, 255, 0, 255, 0, 97, 97, 97, 97],
+            (0..4000u32).map(|i| (i.wrapping_mul(2654435761) >> 13) as u8).collect(),
+            Vec::new(),
+        ];
+        for hay in &hays {
+            let (mut a, mut b) = (Vec::new(), Vec::new());
+            ac.search_walk(hay, &mut |p, e| a.push((p, e)));
+            ac.search(hay, &mut |p, e| b.push((p, e)));
+            assert_eq!(a, b, "mismatch on {} bytes", hay.len());
+        }
+        assert!(!{
+            let mut v = Vec::new();
+            ac.search(&hays[0], &mut |p, e| v.push((p, e)));
+            v
+        }
+        .is_empty());
+    }
+
+    #[test]
+    fn oversized_automaton_falls_back_without_a_dfa() {
+        let mut ac = Ac::new();
+        for i in 0..(DFA_MAX_NODES as u32 / 2) {
+            // little-endian: the first bytes differ, so the trie branches and exceeds the cap
+            ac.insert(&i.to_le_bytes(), i as usize);
+        }
+        ac.build();
+        assert!(ac.nodes.len() > DFA_MAX_NODES);
+        assert!(ac.dfa.is_empty());
+        let mut hits = 0;
+        ac.search(&5u32.to_le_bytes(), &mut |_, _| hits += 1);
+        assert_eq!(hits, 1);
     }
 }

@@ -3,3 +3,5 @@
 .env
 .dev.vars
 *.log
+litric-data/
+windows-evidence.txt

@@ -191,7 +191,6 @@ pub struct PeInfo {
     pub is_dotnet: bool,
     pub is_dll: bool,
     pub is_driver: bool,
-    pub is_system: bool,
     pub rich_header_present: bool,
     pub pdb_path: Option<String>,
     /// Entry point does not fall inside any section — strong packing indicator.
@@ -425,6 +424,7 @@ pub fn parse(data: &[u8]) -> Result<PeInfo, ParseError> {
             dirs[DIR_IMPORT],
             is_64,
             image_base,
+            size_of_image,
             &mut sink,
         )?;
     }
@@ -550,7 +550,6 @@ pub fn parse(data: &[u8]) -> Result<PeInfo, ParseError> {
         is_dotnet: dirs[DIR_CLR].0 != 0,
         is_dll: characteristics & 0x2000 != 0,
         is_driver: subsystem == 1,
-        is_system: subsystem == 1 || subsystem == 2,
         rich_header_present,
         pdb_path,
         entry_outside_sections,
@@ -566,6 +565,34 @@ struct ImportSink<'a> {
     func_total: &'a mut usize,
 }
 
+/// Converts a thunk value into an RVA.
+///
+/// 64-bit images normally store RVAs in the thunk array, but their
+/// `ImageBase` (0x140000000 for Windows binaries) is above `u32::MAX`. A naive
+/// "is this value below the image base?" test therefore treats every RVA as a
+/// virtual address and discards the whole import table. That previously made
+/// every 64-bit Windows binary look like it had no imports at all.
+///
+/// A value is accepted as an RVA when it lies inside the image, and as a VA
+/// when subtracting the image base leaves an in-image RVA. Anything else is
+/// rejected instead of guessed at.
+fn thunk_to_rva(value: u64, image_base: u64, size_of_image: u32) -> Option<u32> {
+    if value == 0 {
+        return None;
+    }
+    let size = u64::from(size_of_image.max(1));
+    if value < size {
+        return Some(value as u32);
+    }
+    if value >= image_base {
+        let delta = value - image_base;
+        if delta < size && delta <= u64::from(u32::MAX) {
+            return Some(delta as u32);
+        }
+    }
+    None
+}
+
 fn parse_imports(
     r: &Reader<'_>,
     sections: &[Section],
@@ -573,6 +600,7 @@ fn parse_imports(
     dir: (u32, u32),
     is_64: bool,
     image_base: u64,
+    size_of_image: u32,
     sink: &mut ImportSink<'_>,
 ) -> Result<(), ParseError> {
     let Some(mut desc_off) = rva_to_offset(sections, size_of_headers, dir.0) else {
@@ -626,27 +654,10 @@ fn parse_imports(
                     ordinals += 1;
                     functions.push(format!("#{}", value & 0xffff));
                     continue;
-                }
-                // Hint/name RVA. Some malformed/VA-based binaries store VAs.
-                let hint_rva = if value <= u32::MAX as u64 {
-                    let v = value as u32;
-                    if v < image_base as u32 && image_base > u32::MAX as u64 {
-                        0
-                    } else {
-                        v
-                    }
-                } else {
-                    0
+                }                let Some(hint_rva) = thunk_to_rva(value, image_base, size_of_image) else {
+                    break;
                 };
-                let hint_rva = if hint_rva == 0 {
-                    // Fallback: treat as VA and subtract image base.
-                    match (value as u32).checked_sub(image_base as u32) {
-                        Some(v) => v,
-                        None => break,
-                    }
-                } else {
-                    hint_rva
-                };
+
                 let Some(hint_off) = rva_to_offset(sections, size_of_headers, hint_rva) else {
                     break;
                 };
@@ -957,5 +968,77 @@ mod tests {
         // A buffer of 0x100 zero bytes has a well-defined checksum: 0x100.
         let data = vec![0u8; 0x100];
         assert_eq!(pe_checksum(&data, 0), 0x100);
+    }
+
+    /// Minimal PE32+ image with `ImageBase = 0x140000000` (above `u32::MAX`),
+    /// one imported DLL and one named import. Real Windows x64 binaries look
+    /// like this; the fixture exists because the previous parser treated every
+    /// RVA as a VA for such images and discarded the whole import table.
+    fn pe64_with_one_import() -> Vec<u8> {
+        let mut d = vec![0u8; 0x400];
+        d[0] = b'M';
+        d[1] = b'Z';
+        d[0x3C..0x40].copy_from_slice(&0x80u32.to_le_bytes());
+        d[0x80..0x84].copy_from_slice(b"PE\0\0");
+
+        let coff = 0x84usize;
+        d[coff..coff + 2].copy_from_slice(&MACHINE_AMD64.to_le_bytes());
+        d[coff + 2..coff + 4].copy_from_slice(&1u16.to_le_bytes());
+        d[coff + 16..coff + 18].copy_from_slice(&240u16.to_le_bytes());
+        d[coff + 18..coff + 20].copy_from_slice(&0x22u16.to_le_bytes());
+
+        let opt = coff + 20;
+        d[opt..opt + 2].copy_from_slice(&0x020bu16.to_le_bytes());
+        d[opt + 16..opt + 20].copy_from_slice(&0x1000u32.to_le_bytes());
+        d[opt + 24..opt + 32].copy_from_slice(&0x1_4000_0000u64.to_le_bytes());
+        d[opt + 32..opt + 36].copy_from_slice(&0x1000u32.to_le_bytes());
+        d[opt + 36..opt + 40].copy_from_slice(&0x200u32.to_le_bytes());
+        d[opt + 56..opt + 60].copy_from_slice(&0x2000u32.to_le_bytes());
+        d[opt + 60..opt + 64].copy_from_slice(&0x200u32.to_le_bytes());
+        d[opt + 68..opt + 70].copy_from_slice(&3u16.to_le_bytes());
+        d[opt + 108..opt + 112].copy_from_slice(&16u32.to_le_bytes());
+
+        // Data directory index 1 = import table at RVA 0x1000.
+        let dd = opt + 112 + 8;
+        d[dd..dd + 4].copy_from_slice(&0x1000u32.to_le_bytes());
+        d[dd + 4..dd + 8].copy_from_slice(&40u32.to_le_bytes());
+
+        let sh = opt + 240;
+        d[sh..sh + 8].copy_from_slice(b".rdata\0\0");
+        d[sh + 8..sh + 12].copy_from_slice(&0x200u32.to_le_bytes());
+        d[sh + 12..sh + 16].copy_from_slice(&0x1000u32.to_le_bytes());
+        d[sh + 16..sh + 20].copy_from_slice(&0x200u32.to_le_bytes());
+        d[sh + 20..sh + 24].copy_from_slice(&0x200u32.to_le_bytes());
+        d[sh + 36..sh + 40].copy_from_slice(&0x4000_0040u32.to_le_bytes());
+
+        // Import descriptor: OriginalFirstThunk, Name, FirstThunk.
+        d[0x200..0x204].copy_from_slice(&0x1030u32.to_le_bytes());
+        d[0x20C..0x210].copy_from_slice(&0x1080u32.to_le_bytes());
+        d[0x210..0x214].copy_from_slice(&0x1040u32.to_le_bytes());
+        // One RVA thunk followed by the terminator.
+        d[0x230..0x238].copy_from_slice(&0x1090u64.to_le_bytes());
+        d[0x280..0x28D].copy_from_slice(b"KERNEL32.dll\0");
+        d[0x292..0x29E].copy_from_slice(b"CreateFileW\0");
+        d
+    }
+
+    #[test]
+    fn imports_parse_when_the_image_base_is_above_four_gigabytes() {
+        let info = parse(&pe64_with_one_import()).expect("fixture parses");
+        assert_eq!(info.imports.len(), 1, "one DLL descriptor");
+        assert_eq!(info.imports[0].name, "KERNEL32.dll");
+        assert_eq!(info.imports[0].functions, vec!["CreateFileW".to_string()]);
+        assert_eq!(info.import_function_count, 1);
+    }
+
+    #[test]
+    fn thunk_conversion_accepts_rvas_and_virtual_addresses_only() {
+        // RVA form.
+        assert_eq!(thunk_to_rva(0x1090, 0x1_4000_0000, 0x2000), Some(0x1090));
+        // VA form (32-bit style image base).
+        assert_eq!(thunk_to_rva(0x401090, 0x400000, 0x2000), Some(0x1090));
+        // Outside the image and not a VA in this image.
+        assert_eq!(thunk_to_rva(0x999999, 0x1_4000_0000, 0x2000), None);
+        assert_eq!(thunk_to_rva(0, 0x400000, 0x2000), None);
     }
 }

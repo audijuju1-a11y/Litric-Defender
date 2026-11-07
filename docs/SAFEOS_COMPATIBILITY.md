@@ -14,11 +14,11 @@ component, not that it is scheduled. **Production readiness: NOT READY** — see
 | Secure file broker | TESTED | `broker.rs`, 9 tests incl. symlink, ADS, traversal, overwrite |
 | Session journal + recovery | TESTED | `journal.rs`, 5 tests incl. crash recovery and idempotent cleanup |
 | Windows Sandbox `.wsb` generation | TESTED | `sandbox.rs`, 6 tests: networking off, redirection off, read-only maps |
-| Windows platform agent (read-only facts) | PARTIAL | collector + ingest TESTED offline with fixtures and a real daemon; not executed on a real Windows host in this environment |
-| Windows Sandbox launch | PARTIAL — IMPLEMENTED, UNVERIFIED | readiness gate + `.wsb` + spawn compiled only for Windows; all blockers and path rules reproduced end-to-end on Linux (409/400/501). Not yet run on a real Windows host |
+| Windows platform agent (read-only facts) | PARTIAL | collector + ingest TESTED offline with fixtures and a real daemon; the PowerShell collector itself is not exercised by the suite |
+| Windows Sandbox launch | PARTIAL — IMPLEMENTED, UNVERIFIED | readiness gate + `.wsb` + spawn compiled for Windows and unit/API tested natively; it has never started a real Windows Sandbox guest |
 | Hyper-V managed VM | BLOCKED | requires Windows 11 + Hyper-V + admin; no implementation |
 | Local network gateway | BLOCKED | requires WFP + WinNAT on Windows; no implementation |
-| WFP policy provider | BLOCKED | no Windows host, no way to test filter isolation |
+| WFP policy provider | NOT IMPLEMENTED | no filter code written; needs admin and leak tests |
 | Guest behaviour monitoring | BLOCKED | needs ETW inside a running guest |
 | SafeLaunch shell integration | PLANNED | no Windows shell or UI in this repo |
 | Installer / uninstaller | PLANNED | no Windows packaging here |
@@ -27,11 +27,11 @@ component, not that it is scheduled. **Production readiness: NOT READY** — see
 
 | Requirement | Checked? |
 |---|---|
-| Windows 11 Pro x64 | No — no Windows host; `HostFacts` accepts agent-reported facts |
+| Windows 11 Pro x64 | `HostFacts` accepts agent-reported facts; the collector is not run by the suite |
 | VT-x / EPT | Modelled in `Readiness`, not probed |
 | RAM installed | Modelled, not probed (`/proc/meminfo` would be meaningless for Windows) |
 | SSD/HDD and free space | Modelled from reported facts |
-| Hyper-V / Sandbox availability | Modelled; this build reports unavailable |
+| Hyper-V / Sandbox availability | Modelled; the sandbox launcher is compiled but unverified, Hyper-V is absent |
 | Existing WinNAT networks | Modelled (`existing_nat_networks`); one NAT blocks the gateway |
 | WSL2 / Docker switches | Modelled as facts; no mutation performed |
 | Defender / Update state | Not collected in this build |

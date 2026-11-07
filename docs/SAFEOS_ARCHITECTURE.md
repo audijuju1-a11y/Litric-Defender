@@ -9,7 +9,7 @@ SafeOS is the application-isolation half of Litric Defender: an unverified
 application should not run directly on the user's Windows host, and the decision
 to isolate must be deterministic, explainable and fail closed.
 
-This repository contains the **portable safety core** and its API integration:
+This repository contains the **safety core** and its API integration:
 
 ```
 crates/litric-safeos/
@@ -22,8 +22,9 @@ crates/litric-safeos/
 ```
 
 Windows-only execution (Hyper-V, Windows Sandbox launch, WFP, WinNAT) is **not
-implemented here**. It cannot be built or tested in this Linux environment, so it
-reports itself unavailable rather than being simulated.
+implemented here**. The Windows Sandbox launcher is compiled and unit/API tested,
+but no guest has been started. Hyper-V and network enforcement report themselves
+unavailable rather than being simulated.
 
 ## 2. Component ownership
 

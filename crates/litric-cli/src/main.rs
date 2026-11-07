@@ -2,8 +2,11 @@
 //!
 //! Operational commands (`status`, `scan`, `analyze`, `quarantine`) go through
 //! the running `litricd` daemon over its local API by default. That is the
-//! supported path: one scanner, one threat database, one quarantine, one audit
-//! trail — shared by the UI and the CLI.
+//! supported path for daemon-backed work: one scanner, one threat database, one
+//! quarantine, one audit trail — shared by the UI and the CLI.
+//!
+//! `guard` is the deliberate in-process exception: it scans, quarantines and
+//! launches one child under one fail-closed policy, without a daemon handoff.
 //!
 //! `--local` is an explicit, clearly-labelled escape hatch that uses the embedded
 //! engine for standalone scanning (forensics, CI, offline hosts). It never
@@ -14,18 +17,24 @@
 //! the running protection state.
 
 use std::path::{Path, PathBuf};
-use std::process::ExitCode;
+use std::process::{Command as ProcessCommand, ExitCode, ExitStatus};
 use std::time::{Duration, Instant};
 
 use clap::{Parser, Subcommand};
 
 use litric_cli::client::{self, Client};
 use litric_core::engine::{Engine, EngineConfig};
+use litric_core::guard::{decide, PreflightAction, PreflightPolicy};
+use litric_core::hash::sha256_bytes;
 use litric_core::quarantine::QuarantineVault;
 use litric_core::rules::{parse_rule_file, Rule, RuleSet};
 use litric_core::scan::{ScanLimits, ScanSummary, Scanner};
+use litric_core::scan_quarantine::{
+    quarantine_malicious as quarantine_malicious_detections, ScanQuarantineReport,
+};
 use litric_core::threatdb::{
-    build_signed, dev_signing_key, DbPayload, HashEntry, RuleSource, ThreatDb, DB_FORMAT_VERSION,
+    build_signed, dev_signing_key, DbPayload, DbTrust, HashEntry, RuleSource, ThreatDb,
+    DB_FORMAT_VERSION,
 };
 
 #[derive(Parser)]
@@ -34,13 +43,15 @@ use litric_core::threatdb::{
     version = litric_core::ENGINE_VERSION,
     about = "Litric Defender client: drives the litricd daemon, or scans standalone with --local",
     long_about = "Litric Defender CLI.\n\n\
-        By default every operational command talks to the running litricd daemon \
+        Daemon-backed commands talk to the running litricd daemon \
         (127.0.0.1:8787) using its bearer token. If the daemon is not running or the \
         token is missing, the command fails with instructions instead of quietly \
-        scanning in-process.\n\n\
-        Use --local for standalone scanning without a daemon.\n\n\
-        Exit codes: 0 success, 1 threat found (with --fail-on-threat) or failed job, \
-        2 client/usage error, 3 cancelled."
+        scanning in-process. `guard` is the exception: it scans and quarantines \
+        in-process, then launches the child only if the verdict permits it.\n\n\
+        Use --local for standalone scanning without a daemon (it does not affect \
+        guard).\n\n\
+        Exit codes: 0 success, 1 threat/guard refusal or failed job, 2 client/usage \
+        error, 3 cancelled, 4 quarantine failure during a scan."
 )]
 struct Cli {
     /// Address of the running litricd daemon (default 127.0.0.1:8787).
@@ -78,6 +89,15 @@ enum Command {
         /// Exit with code 1 when anything malicious or suspicious is found.
         #[arg(long)]
         fail_on_threat: bool,
+        /// Quarantine MALICIOUS files after scanning; Clean and Unknown files are untouched.
+        #[arg(long)]
+        quarantine_malicious: bool,
+        /// Encrypted vault directory (used only with --local and --quarantine-malicious).
+        #[arg(long)]
+        vault_dir: Option<PathBuf>,
+        /// Encrypted vault key file (used only with --local and --quarantine-malicious).
+        #[arg(long)]
+        vault_key: Option<PathBuf>,
         /// Maximum seconds to wait for completion (default 3600).
         #[arg(long)]
         timeout: Option<u64>,
@@ -101,6 +121,51 @@ enum Command {
         rules: PathBuf,
         #[arg(long)]
         db: Option<PathBuf>,
+    },
+    /// Scan a file, block malicious content, and launch it only if safe.
+    ///
+    /// This protects only launches made through this command. It is not a
+    /// system-wide real-time scanner and cannot intercept Explorer double-clicks.
+    Guard {
+        file: PathBuf,
+        /// Permit execution when the scan result is UNKNOWN (not recommended).
+        #[arg(long)]
+        allow_unknown: bool,
+        /// Move a malicious file into the encrypted vault before blocking it.
+        /// Off by default: blocking never touches the file.
+        #[arg(long)]
+        quarantine: bool,
+        /// Deprecated no-op, kept so existing scripts keep parsing. Quarantine is
+        /// opt-in, so this flag is already the default and never removes a file.
+        #[arg(long, hide = true)]
+        no_quarantine: bool,
+        /// Rules directory.
+        #[arg(long, default_value = "rules")]
+        rules: PathBuf,
+        /// Threat database directory.
+        #[arg(long)]
+        db: Option<PathBuf>,
+        /// Directory for the encrypted quarantine vault.
+        #[arg(long)]
+        vault_dir: Option<PathBuf>,
+        /// Key file for the quarantine vault.
+        #[arg(long)]
+        vault_key: Option<PathBuf>,
+        /// Arguments passed to the program after `--`.
+        #[arg(last = true)]
+        args: Vec<String>,
+    },
+    /// Show the policy that gates every destructive operation, and verify the
+    /// append-only audit chain that records them.
+    Safety {
+        #[arg(long)]
+        json: bool,
+        /// Vault directory (used only with --local).
+        #[arg(long)]
+        vault_dir: Option<PathBuf>,
+        /// Vault key file (used only with --local).
+        #[arg(long)]
+        vault_key: Option<PathBuf>,
     },
     /// Quarantine operations.
     Quarantine {
@@ -142,11 +207,16 @@ enum Command {
 enum QuarantineCmd {
     /// List quarantined objects.
     List,
-    /// Quarantine a file (moves it into the encrypted vault).
+    /// Copy a file into the encrypted vault. The original is left in place
+    /// unless --remove-original is passed.
     Add {
         file: PathBuf,
         #[arg(long, default_value = "User.Request")]
         threat: String,
+        /// Remove the source after the encrypted copy is written and verified.
+        /// Off by default: a quarantined original is never deleted by accident.
+        #[arg(long)]
+        remove_original: bool,
     },
     /// Restore a quarantined object by id.
     Restore {
@@ -256,16 +326,44 @@ fn run(cli: Cli) -> Result<ExitCode, Box<dyn std::error::Error>> {
             json,
             no_wait,
             fail_on_threat,
+            quarantine_malicious,
+            vault_dir,
+            vault_key,
             timeout,
             rules,
             db,
         } => {
             if local {
-                return local_scan(&rules, db.as_deref(), &path, json, fail_on_threat);
+                let vault = if quarantine_malicious {
+                    match open_local_vault(vault_dir, vault_key) {
+                        Ok(v) => Some(v),
+                        Err(e) => {
+                            eprintln!(
+                                "litric: cannot open the quarantine vault ({e}); refusing to run \
+                                 --quarantine-malicious without a working vault"
+                            );
+                            return Ok(ExitCode::from(4));
+                        }
+                    }
+                } else {
+                    None
+                };
+                return local_scan(
+                    &rules,
+                    db.as_deref(),
+                    &path,
+                    json,
+                    fail_on_threat,
+                    vault.as_ref(),
+                );
             }
             let c = Client::discover(addr.as_deref(), token_file.as_deref())?;
             let target = canonical(&path)?;
-            let started = c.start_scan(&target.display().to_string(), &profile)?;
+            let started = c.start_scan(
+                &target.display().to_string(),
+                &profile,
+                quarantine_malicious,
+            )?;
             let id = started["job_id"]
                 .as_str()
                 .ok_or("daemon accepted the scan but returned no job id")?
@@ -302,7 +400,14 @@ fn run(cli: Cli) -> Result<ExitCode, Box<dyn std::error::Error>> {
                             _ => {
                                 let hits = job["malicious"].as_u64().unwrap_or(0)
                                     + job["suspicious"].as_u64().unwrap_or(0);
-                                if fail_on_threat && hits > 0 {
+                                let quarantine_failures =
+                                    job["quarantine_failures"].as_u64().unwrap_or(0);
+                                if quarantine_failures > 0 {
+                                    ExitCode::from(4)
+                                } else if (quarantine_malicious
+                                    && job["malicious"].as_u64().unwrap_or(0) > 0)
+                                    || (fail_on_threat && hits > 0)
+                                {
                                     ExitCode::from(1)
                                 } else {
                                     ExitCode::SUCCESS
@@ -359,6 +464,56 @@ fn run(cli: Cli) -> Result<ExitCode, Box<dyn std::error::Error>> {
             })
         }
 
+        Command::Guard {
+            file,
+            allow_unknown,
+            quarantine,
+            no_quarantine,
+            rules,
+            db,
+            vault_dir,
+            vault_key,
+            args,
+        } => local_guard(
+            &rules,
+            db.as_deref(),
+            &file,
+            GuardOptions {
+                allow_unknown,
+                // `--no-quarantine` always wins, so a script that relied on it
+                // can never start deleting files after this change.
+                quarantine: quarantine && !no_quarantine,
+                vault_dir,
+                vault_key,
+                args,
+            },
+        ),
+
+        Command::Safety {
+            json,
+            vault_dir,
+            vault_key,
+        } => {
+            let status = if local {
+                let v = open_local_vault(vault_dir, vault_key)?;
+                v.safety().status_json()
+            } else {
+                Client::discover(addr.as_deref(), token_file.as_deref())?.safety()?
+            };
+            if json {
+                println!("{}", serde_json::to_string_pretty(&status)?);
+            } else {
+                print!("{}", client::render_safety(&status));
+            }
+            let trusted = status["policy_trusted"].as_bool() == Some(true);
+            let chain_ok = status["audit"]["ok"].as_bool() == Some(true);
+            Ok(if trusted && chain_ok {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::from(1)
+            })
+        }
+
         Command::Quarantine { cmd, dir, key } => {
             if local {
                 return local_quarantine(cmd, dir, key);
@@ -370,9 +525,17 @@ fn run(cli: Cli) -> Result<ExitCode, Box<dyn std::error::Error>> {
                     print!("{}", client::render_quarantine(&v));
                     Ok(ExitCode::SUCCESS)
                 }
-                QuarantineCmd::Add { file, threat } => {
+                QuarantineCmd::Add {
+                    file,
+                    threat,
+                    remove_original,
+                } => {
                     let target = canonical(&file)?;
-                    let v = c.quarantine_add(&target.display().to_string(), &threat)?;
+                    let v = c.quarantine_add(
+                        &target.display().to_string(),
+                        &threat,
+                        remove_original,
+                    )?;
                     println!("quarantined {} as {}", target.display(), v["id"].as_str().unwrap_or("?"));
                     println!("sha256      : {}", v["sha256"].as_str().unwrap_or("?"));
                     println!(
@@ -501,6 +664,7 @@ fn local_scan(
     path: &Path,
     json: bool,
     fail_on_threat: bool,
+    vault: Option<&QuarantineVault>,
 ) -> Result<ExitCode, Box<dyn std::error::Error>> {
     eprintln!("litric: standalone mode (--local): no daemon involved, results are not shared with the service");
     let engine = build_engine(rules, db)?;
@@ -510,37 +674,53 @@ fn local_scan(
     };
     let mut scanner = Scanner::new(&engine, limits);
     let summary = scanner.scan_path(path);
+    let quarantine = vault.map(|v| quarantine_malicious_detections(&summary, v));
+
     if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&serde_json::json!({
-                "mode": "local",
-                "files_scanned": summary.files_scanned,
-                "clean": summary.clean,
-                "unknown": summary.unknown,
-                "suspicious": summary.suspicious,
-                "malicious": summary.malicious,
-                "unreadable": summary.unreadable,
-                "skipped": summary.skipped,
-                "duration_ms": summary.duration.as_millis(),
-                "detections": summary.detections.iter().map(|d| serde_json::json!({
-                    "path": d.path.display().to_string(),
-                    "verdict": d.verdict.as_str(),
-                    "score": d.score,
-                    "threat": d.threat_name,
-                })).collect::<Vec<_>>(),
-            }))?
-        );
+        let mut out = serde_json::json!({
+            "mode": "local",
+            "files_scanned": summary.files_scanned,
+            "clean": summary.clean,
+            "unknown": summary.unknown,
+            "suspicious": summary.suspicious,
+            "malicious": summary.malicious,
+            "unreadable": summary.unreadable,
+            "skipped": summary.skipped,
+            "duration_ms": summary.duration.as_millis(),
+            "files_per_second": summary.files_per_second(),
+            "mb_per_second": summary.mb_per_second(),
+            "detections": summary.detections.iter().map(|d| serde_json::json!({
+                "path": d.path.display().to_string(),
+                "verdict": d.verdict.as_str(),
+                "score": d.score,
+                "threat": d.threat_name,
+            })).collect::<Vec<_>>(),
+        });
+        if let Some(q) = &quarantine {
+            out["quarantine"] = serde_json::to_value(q)?;
+        }
+        println!("{}", serde_json::to_string_pretty(&out)?);
     } else {
         print_local_summary(&summary);
+        if let Some(q) = &quarantine {
+            print_quarantine_report(q);
+        }
     }
-    Ok(
-        if fail_on_threat && (summary.malicious > 0 || summary.suspicious > 0) {
-            ExitCode::from(1)
-        } else {
-            ExitCode::SUCCESS
-        },
-    )
+
+    let quarantine_failed = quarantine
+        .as_ref()
+        .map(|q| q.failures > 0)
+        .unwrap_or(false);
+    let found_malicious = summary.malicious > 0;
+    Ok(if quarantine_failed {
+        ExitCode::from(4)
+    } else if (quarantine.is_some() && found_malicious)
+        || (fail_on_threat && (summary.malicious > 0 || summary.suspicious > 0))
+    {
+        ExitCode::from(1)
+    } else {
+        ExitCode::SUCCESS
+    })
 }
 
 fn print_local_summary(s: &ScanSummary) {
@@ -554,6 +734,11 @@ fn print_local_summary(s: &ScanSummary) {
         s.skipped, s.unreadable, s.truncated
     );
     println!("duration      : {:?}", s.duration);
+    println!(
+        "throughput    : {:.1} files/s, {:.2} MiB/s",
+        s.files_per_second(),
+        s.mb_per_second()
+    );
     for d in &s.detections {
         println!(
             "  [{:>10}] {}  ({})",
@@ -564,6 +749,22 @@ fn print_local_summary(s: &ScanSummary) {
     }
     if s.unknown > 0 {
         println!("note: {} file(s) are UNKNOWN, not clean", s.unknown);
+    }
+}
+
+fn print_quarantine_report(q: &ScanQuarantineReport) {
+    println!(
+        "quarantine    : {} malicious, {} moved, {} failed",
+        q.malicious_seen, q.quarantined, q.failures
+    );
+    for entry in &q.entries {
+        println!(
+            "  moved {}  {}  (original removed: {})",
+            entry.id, entry.original_path, entry.original_removed
+        );
+    }
+    for failure in &q.errors {
+        println!("  FAILED {}  ({})", failure.path, failure.error);
     }
 }
 
@@ -605,14 +806,222 @@ fn local_analyze(
     })
 }
 
+struct GuardOptions {
+    allow_unknown: bool,
+    quarantine: bool,
+    vault_dir: Option<PathBuf>,
+    vault_key: Option<PathBuf>,
+    args: Vec<String>,
+}
+
+fn local_guard(
+    rules: &Path,
+    db: Option<&Path>,
+    file: &Path,
+    options: GuardOptions,
+) -> Result<ExitCode, Box<dyn std::error::Error>> {
+    let GuardOptions {
+        allow_unknown,
+        quarantine,
+        vault_dir,
+        vault_key,
+        args,
+    } = options;
+    let target = std::fs::canonicalize(file).map_err(|e| {
+        format!(
+            "cannot access guard target `{}`: {e}\nThe guard must run on a regular file before it is launched.",
+            file.display()
+        )
+    })?;
+    let metadata = std::fs::metadata(&target)?;
+    if !metadata.is_file() {
+        return Err(format!(
+            "guard target `{}` is not a regular file",
+            target.display()
+        )
+        .into());
+    }
+
+    eprintln!(
+        "litric: preflight guard (in-process); only launches through this command are protected"
+    );
+    let engine = build_engine(rules, db)?;
+    let scanner = Scanner::new(&engine, ScanLimits::default());
+    let scan_started = Instant::now();
+    let (report, truncated) = scanner.analyze_file(&target)?;
+    let scan_ms = scan_started.elapsed().as_millis();
+    let policy = PreflightPolicy {
+        allow_unknown,
+        quarantine_malicious: quarantine,
+    };
+    let decision = decide(report.verdict, truncated, policy);
+
+    println!("target      : {}", target.display());
+    println!("sha256      : {}", report.sha256.to_hex());
+    println!(
+        "verdict     : {} (score {}/100, confidence {:.2})",
+        report.verdict.as_str().to_uppercase(),
+        report.score,
+        report.confidence
+    );
+    if let Some(threat) = &report.threat_name {
+        println!("threat      : {threat}");
+    }
+    println!(
+        "scan        : {scan_ms} ms for {} bytes{}",
+        report.size,
+        if truncated { " (TRUNCATED)" } else { "" }
+    );
+    println!("action      : {}", decision.action.as_str());
+    println!("reason      : {}", decision.reason);
+    if let Some(warning) = decision.warning {
+        eprintln!("guard: warning: {warning}");
+    }
+
+    match decision.action {
+        PreflightAction::Allow => {
+            if let Err(e) = verify_file_unchanged(
+                &target,
+                &report.sha256.to_hex(),
+                report.size,
+                ScanLimits::default().max_file_bytes,
+            ) {
+                eprintln!("guard: refusing to execute: {e}");
+                return Ok(ExitCode::from(1));
+            }
+            let command_line = if args.is_empty() {
+                target.display().to_string()
+            } else {
+                format!("{} {:?}", target.display(), args)
+            };
+            println!("exec        : {command_line}");
+            let mut child = ProcessCommand::new(&target);
+            child.args(&args);
+            match child.status() {
+                Ok(status) => Ok(exit_code_for(status)),
+                Err(e) => {
+                    eprintln!("guard: cannot execute `{}`: {e}", target.display());
+                    Ok(ExitCode::from(1))
+                }
+            }
+        }
+        PreflightAction::Block => {
+            eprintln!("guard: refusing to execute `{}`", target.display());
+            Ok(ExitCode::from(1))
+        }
+        PreflightAction::Quarantine => {
+            if let Err(e) = verify_file_unchanged(
+                &target,
+                &report.sha256.to_hex(),
+                report.size,
+                ScanLimits::default().max_file_bytes,
+            ) {
+                eprintln!("guard: refusing to quarantine or execute: {e}");
+                return Ok(ExitCode::from(1));
+            }
+            let vault = open_local_vault(vault_dir, vault_key)?;
+            let threat = report.threat_name.as_deref().unwrap_or("Malware.Preflight");
+            match vault.quarantine_file(
+                &target,
+                threat,
+                report.family.as_deref(),
+                report.score,
+                false,
+            ) {
+                Ok(meta) => {
+                    println!(
+                        "quarantine  : {} (original removed: {})",
+                        meta.id, meta.original_removed
+                    );
+                    if meta.sha256 != report.sha256.to_hex() {
+                        eprintln!(
+                            "guard: warning: the file changed while it was being quarantined; \
+                             the entry was preserved and execution is refused"
+                        );
+                    }
+                    if !meta.original_removed {
+                        eprintln!(
+                            "guard: warning: the original file could not be removed; execution \
+                             is still refused"
+                        );
+                    }
+                }
+                Err(e) => {
+                    eprintln!("guard: quarantine FAILED: {e}");
+                    eprintln!("guard: refusing to execute; the original was left in place");
+                    return Ok(ExitCode::from(1));
+                }
+            }
+            eprintln!("guard: refusing to execute `{}`", target.display());
+            Ok(ExitCode::from(1))
+        }
+    }
+}
+
+fn open_local_vault(
+    dir: Option<PathBuf>,
+    key: Option<PathBuf>,
+) -> Result<QuarantineVault, Box<dyn std::error::Error>> {
+    let dir = dir.unwrap_or_else(|| PathBuf::from("litric-data/quarantine"));
+    let key = key.unwrap_or_else(|| PathBuf::from("litric-data/vault.key"));
+    // `QuarantineVault::open` enforces the protected DACL for every caller
+    // (CLI, daemon, watcher) and fails closed on non-NTFS.
+    Ok(QuarantineVault::open(&dir, &key)?)
+}
+
+/// Re-hashes the file immediately before launch so a replaced file cannot ride
+/// on the earlier `Clean` verdict. This narrows the scan-to-exec race; it does
+/// not eliminate it, because a path can still be swapped after this check.
+fn verify_file_unchanged(
+    path: &Path,
+    expected_sha256: &str,
+    expected_size: u64,
+    max_file_bytes: u64,
+) -> Result<(), String> {
+    let metadata = std::fs::metadata(path)
+        .map_err(|e| format!("cannot re-read `{}` before launch: {e}", path.display()))?;
+    if !metadata.is_file() {
+        return Err(format!("`{}` is no longer a regular file", path.display()));
+    }
+    if metadata.len() != expected_size {
+        return Err(format!(
+            "file size changed after scan (expected {expected_size}, found {})",
+            metadata.len()
+        ));
+    }
+    if metadata.len() > max_file_bytes {
+        return Err(format!(
+            "file is larger than the {} byte scan cap",
+            max_file_bytes
+        ));
+    }
+    let data = std::fs::read(path)
+        .map_err(|e| format!("cannot re-read `{}` before launch: {e}", path.display()))?;
+    let actual = sha256_bytes(&data).to_hex();
+    if actual != expected_sha256 {
+        return Err(format!(
+            "file content changed after scan (expected {expected_sha256}, found {actual})"
+        ));
+    }
+    Ok(())
+}
+
+fn exit_code_for(status: ExitStatus) -> ExitCode {
+    match status.code() {
+        Some(0) => ExitCode::SUCCESS,
+        Some(code) if (1..=255).contains(&code) => ExitCode::from(code as u8),
+        Some(_) | None => ExitCode::from(1),
+    }
+}
+
 fn local_quarantine(
     cmd: QuarantineCmd,
     dir: Option<PathBuf>,
     key: Option<PathBuf>,
 ) -> Result<ExitCode, Box<dyn std::error::Error>> {
-    let dir = dir.unwrap_or_else(|| PathBuf::from("litric-data/quarantine"));
-    let key = key.unwrap_or_else(|| PathBuf::from("litric-data/vault.key"));
-    let vault = QuarantineVault::open(&dir, &key)?;
+    // Goes through the same hardening path as scan/guard: quarantine commands
+    // must never open a vault that other local users can read.
+    let vault = open_local_vault(dir, key)?;
     match cmd {
         QuarantineCmd::List => {
             let entries = vault.list();
@@ -627,9 +1036,17 @@ fn local_quarantine(
             }
             Ok(ExitCode::SUCCESS)
         }
-        QuarantineCmd::Add { file, threat } => {
-            let meta = vault.quarantine_file(&file, &threat, None, 100, false)?;
+        QuarantineCmd::Add {
+            file,
+            threat,
+            remove_original,
+        } => {
+            let meta = vault.quarantine_file(&file, &threat, None, 100, !remove_original)?;
             println!("quarantined as {}", meta.id);
+            println!("original removed: {}", meta.original_removed);
+            if let Some(reason) = &meta.source_retained_reason {
+                println!("source retained: {reason}");
+            }
             Ok(ExitCode::SUCCESS)
         }
         QuarantineCmd::Restore { id, dest } => {
@@ -670,7 +1087,16 @@ fn build_engine(
     db_dir: Option<&Path>,
 ) -> Result<Engine, Box<dyn std::error::Error>> {
     let db = match db_dir {
-        Some(dir) => ThreatDb::open_dir(dir, &[], true, litric_core::ENGINE_VERSION)?,
+        Some(dir) => {
+            let db = ThreatDb::load_for_runtime(dir, litric_core::ENGINE_VERSION)?;
+            if db.trust == DbTrust::DevelopmentOnly {
+                eprintln!(
+                    "litric: warning: using a DEVELOPMENT-signed threat database; \
+                     set LITRIC_DB_PUBKEY for production content"
+                );
+            }
+            db
+        }
         None => ThreatDb::empty(),
     };
     let mut rules: Vec<Rule> = Vec::new();
@@ -813,6 +1239,9 @@ fn build_db(
 }
 
 fn verify_db(dir: &Path) -> Result<ExitCode, Box<dyn std::error::Error>> {
+    // Diagnostic path: accepts the fixture key so an operator can inspect test
+    // content, and prints the resulting trust level. Runtime code must use
+    // `ThreatDb::load_for_runtime`, never this call.
     match ThreatDb::open_dir(dir, &[], true, litric_core::ENGINE_VERSION) {
         Ok(db) => {
             println!("signature   : valid");

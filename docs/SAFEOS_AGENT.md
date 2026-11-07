@@ -47,6 +47,7 @@ Exit codes: 0 reported, 1 daemon rejected the report, 2 client/probe error.
 | `hyperv_feature_present` | optional feature, else `vmms` + hypervisor present | false |
 | `sandbox_feature_present` | `WindowsSandbox.exe`, else optional feature | false |
 | `total_ram_mb`, `free_disk_mb` | `Win32_ComputerSystem`, `Win32_LogicalDisk C:` | 0 → blockers |
+| `logical_cpus` | `NUMBER_OF_PROCESSORS` | 0 → resource governor refuses (vCPU limits cannot be planned) |
 | `existing_nat_networks` | `Get-NetNat` | query failure sets `nat_query_ok=false` |
 | `nat_query_ok` | collector | **false blocks the gateway**; failure is never "zero NATs" |
 | `wsl_switches`, `docker_switches` | adapter names/descriptions | 0, informational |
@@ -69,10 +70,10 @@ to file/service checks. That is deliberate: unreadable state fails closed.
 `POST /api/v1/safeos/assess` still uses an empty backend set, so an unverified
 application is still denied. Reporting facts does not silently grant isolation.
 
-## Why the launcher is still BLOCKED
+## Why the launcher is still UNVERIFIED
 
-Launching Windows Sandbox/Hyper-V, a WFP provider and a WinNAT-compatible
-gateway requires a Windows host with virtualization, admin rights and a running
-guest to test against. This repository is built in Linux with none of those.
-Writing that code without executing it would be unverified security code, so it
-is reported as BLOCKED rather than shipped as if it worked.
+Launching Windows Sandbox, Hyper-V, a WFP provider and a WinNAT-compatible
+gateway requires virtualization, admin rights and a running guest. A Windows
+Sandbox launcher exists, but no guest has been started, and the Hyper-V/WFP/WDK
+components are not written. They are reported as UNVERIFIED or NOT IMPLEMENTED,
+never as working.

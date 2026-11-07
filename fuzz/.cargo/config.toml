@@ -1,0 +1,7 @@
+# The windows-gnu host has no MSVC linker or sanitizer runtime. The fuzz
+# workspace therefore builds libFuzzer's C++ runtime with MinGW first:
+#   bash build_libfuzzer_mingw.sh
+# `relative = true` resolves against this `fuzz` directory.
+[env]
+CUSTOM_LIBFUZZER_PATH = { value = "target/libfuzzer-mingw/libfuzzer.a", relative = true }
+CUSTOM_LIBFUZZER_STD_CXX = "stdc++"

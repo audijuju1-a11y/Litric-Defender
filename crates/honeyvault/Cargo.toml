@@ -1,0 +1,9 @@
+[package]
+name = "honeyvault"
+version = "0.1.0"
+edition = "2021"
+description = "Litric HoneyVault: safe synthetic decoy files with tamper checks"
+license = "LicenseRef-Proprietary"
+
+[dependencies]
+recovery = { path = "../recovery" }

@@ -28,7 +28,7 @@ pub struct Settings {
     pub scan_cache: bool,
     /// Days to keep quarantined objects before offering them for review.
     pub retention_days: u32,
-    /// Never quarantine automatically; only alert.
+    /// Refuse scan-time automatic quarantine; manual quarantine remains available.
     pub alert_only: bool,
     /// Scan removable drives when attached (requires the Windows sensor; off).
     pub scan_removable: bool,

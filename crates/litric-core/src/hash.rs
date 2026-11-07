@@ -90,12 +90,16 @@ pub fn sha256_file(path: &Path, max_bytes: u64) -> io::Result<(Digest32, u64, bo
     let mut total: u64 = 0;
     let mut truncated = false;
     loop {
-        let want = if total >= max_bytes {
-            truncated = true;
+        if total >= max_bytes {
+            // Probe one byte to distinguish "exactly the cap" from "more data
+            // than the cap". Without the probe a file whose size equals the cap
+            // was reported as truncated, which made a correct digest-bound
+            // quarantine refuse its own verified file.
+            let mut probe = [0u8; 1];
+            truncated = f.read(&mut probe)? > 0;
             break;
-        } else {
-            (max_bytes - total).min(buf.len() as u64) as usize
-        };
+        }
+        let want = (max_bytes - total).min(buf.len() as u64) as usize;
         let n = f.read(&mut buf[..want])?;
         if n == 0 {
             break;

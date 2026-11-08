@@ -26,6 +26,7 @@
 pub mod api;
 pub mod jobs;
 pub mod server;
+pub mod shield;
 pub mod store;
 #[cfg(windows)]
 pub mod winsvc;
@@ -156,6 +157,13 @@ pub struct AppState {
     /// Process gate, when the operator enabled one. `None` means the gate is
     /// not running and the API must say so instead of implying protection.
     pub process_gate: Mutex<Option<Arc<processgate::GateHandle>>>,
+    /// The user-mode real-time file monitor, when it is running. `None` means it is not, and the
+    /// API must say so rather than imply protection.
+    pub realtime: Mutex<Option<Arc<litric_monitor::Monitor>>>,
+    /// Why the monitor was requested but could not start, shown by `/status` instead of hiding it.
+    pub realtime_error: Mutex<Option<String>>,
+    /// The bridge that feeds the monitor's file events to RansomShield and the decoys.
+    pub ransomware: Mutex<Option<Arc<shield::ShieldBridge>>>,
     pub started: Instant,
     /// True when the caller asked for real-time protection (policy), not when it
     /// is actually running. Capability probes live in `api::status_json`.
@@ -200,6 +208,9 @@ impl AppState {
             token,
             data_dir: data_dir.to_path_buf(),
             process_gate: Mutex::new(None),
+            realtime: Mutex::new(None),
+            realtime_error: Mutex::new(None),
+            ransomware: Mutex::new(None),
             started: Instant::now(),
             realtime_requested,
         }))
@@ -217,6 +228,64 @@ impl AppState {
     /// The gate handle, if one is running.
     pub fn process_gate(&self) -> Option<Arc<processgate::GateHandle>> {
         self.process_gate
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    }
+
+    /// Attaches a running real-time file monitor to this state.
+    pub fn set_realtime(&self, monitor: Arc<litric_monitor::Monitor>) {
+        *self
+            .realtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(monitor);
+    }
+
+    /// The real-time monitor, if one is running.
+    pub fn realtime(&self) -> Option<Arc<litric_monitor::Monitor>> {
+        self.realtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    }
+
+    /// Attaches the RansomShield bridge fed by the real-time monitor.
+    pub fn set_ransomware(&self, bridge: Arc<shield::ShieldBridge>) {
+        *self
+            .ransomware
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(bridge);
+    }
+
+    /// The RansomShield bridge, if the monitor feeds one.
+    pub fn ransomware(&self) -> Option<Arc<shield::ShieldBridge>> {
+        self.ransomware
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    }
+
+    /// Stops the real-time layers in dependency order: the monitor first (it owns the OS watcher
+    /// that feeds the bridge), then the bridge. Safe to call more than once.
+    pub fn shutdown_realtime(&self) {
+        if let Some(m) = self.realtime() {
+            m.shutdown();
+        }
+        if let Some(b) = self.ransomware() {
+            b.shutdown();
+        }
+    }
+
+    /// Records why a requested real-time monitor is not running.
+    pub fn set_realtime_error(&self, message: String) {
+        *self
+            .realtime_error
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(message);
+    }
+
+    pub fn realtime_error(&self) -> Option<String> {
+        self.realtime_error
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .clone()

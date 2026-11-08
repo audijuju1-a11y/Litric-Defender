@@ -189,3 +189,96 @@ fn startup_refuses_missing_directories_and_empty_config() {
     assert!(Monitor::start(pipeline(), vault.clone(), MonitorConfig::new(vec![])).is_err());
     assert!(Monitor::start(pipeline(), vault, MonitorConfig::new(vec![Path::new("/definitely/not/here").to_path_buf()])).is_err());
 }
+
+// ---- startup sweep, log rotation, shutdown, status (added with the service integration) ----
+
+#[test]
+fn the_startup_sweep_quarantines_malware_that_existed_before_the_monitor_started() {
+    let e = env("sweep");
+    let nested = e.watch.join("old").join("deeper");
+    std::fs::create_dir_all(&nested).unwrap();
+    let old = nested.join("dropper.com");
+    std::fs::write(&old, eicar()).unwrap();
+    std::fs::write(e.watch.join("readme.txt"), b"benign").unwrap();
+    let (m, vault) = start(&e, |_| {});
+    // no change event exists for a file that was already there
+    std::thread::sleep(Duration::from_millis(600));
+    assert!(old.exists(), "the event path alone must not see pre-existing files");
+    m.start_sweep(10_000);
+    m.start_sweep(10_000); // second call is a no-op
+    wait_for("sweep to finish", || m.stats().sweep_finished.load(Relaxed));
+    assert!(!old.exists(), "sweep must quarantine the pre-existing EICAR file");
+    assert!(e.watch.join("readme.txt").exists(), "benign files are never touched");
+    assert_eq!(vault.list().len(), 1);
+    assert_eq!(m.stats().sweep_visited.load(Relaxed), 2);
+    let status = m.status_json();
+    assert_eq!(status["sweep"]["finished"], true);
+    assert_eq!(status["stats"]["quarantined"], 1);
+    assert!(m.health().degraded.is_empty(), "{:?}", m.health());
+    m.stop();
+}
+
+#[test]
+fn the_sweep_skips_the_vault_and_reports_a_file_limit_as_degraded_protection() {
+    let root = std::env::temp_dir().join(format!("litric_mon_sweeplimit_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    for i in 0..8 {
+        std::fs::write(root.join(format!("f{i}.txt")), b"x").unwrap();
+    }
+    let e = Env { watch: root.clone(), vault_dir: root.join("vault"), key: root.join("vault.key"), root: root.clone() };
+    let (m, vault) = start(&e, |_| {});
+    // a malicious-looking file inside the vault directory must never be scanned
+    std::fs::write(e.vault_dir.join("stray.com"), eicar()).unwrap();
+    m.start_sweep(3);
+    wait_for("sweep to finish", || m.stats().sweep_finished.load(Relaxed));
+    assert_eq!(m.stats().malicious.load(Relaxed), 0, "vault contents are excluded");
+    assert!(vault.list().is_empty());
+    assert!(m.stats().sweep_truncated.load(Relaxed));
+    let h = m.health();
+    assert!(h.degraded.iter().any(|d| d.contains("file limit")), "{h:?}");
+    m.stop();
+}
+
+#[test]
+fn the_event_log_rotates_to_dot_1_and_keeps_recording() {
+    let e = env("rotate");
+    let log = e.root.join("events.jsonl");
+    let (m, _v) = start(&e, |c| {
+        c.log_max_bytes = 600;
+        c.debounce = Duration::from_millis(100);
+    });
+    for i in 0..12 {
+        std::fs::write(e.watch.join(format!("m{i}.com")), eicar()).unwrap();
+        std::thread::sleep(Duration::from_millis(60));
+    }
+    wait_for("all quarantined", || m.stats().quarantined.load(Relaxed) == 12);
+    let rotated = PathBuf::from(format!("{}.1", log.display()));
+    assert!(rotated.exists(), "the log was never rotated");
+    assert!(std::fs::metadata(&log).unwrap().len() < 600 + 700, "the active log must stay near its cap");
+    assert!(!m.recent_events(5).is_empty());
+    m.stop();
+}
+
+#[test]
+fn shutdown_is_idempotent_and_reported_in_health() {
+    let e = env("shutdown");
+    let (m, _v) = start(&e, |_| {});
+    assert!(m.health().running);
+    m.shutdown();
+    m.shutdown();
+    let h = m.health();
+    assert!(!h.running);
+    assert!(h.degraded.iter().any(|d| d.contains("not running")), "{h:?}");
+}
+
+#[test]
+fn default_watch_dirs_only_lists_directories_that_exist_and_has_no_duplicates() {
+    let dirs = litric_monitor::default_watch_dirs();
+    let mut seen = std::collections::HashSet::new();
+    for d in &dirs {
+        assert!(d.is_dir(), "{} does not exist", d.display());
+        assert!(seen.insert(litric_monitor::norm_path(&d.to_string_lossy(), cfg!(windows))), "duplicate {}", d.display());
+    }
+    assert!(!dirs.is_empty(), "the temp directory is always a candidate");
+}

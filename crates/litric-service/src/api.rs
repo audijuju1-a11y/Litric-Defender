@@ -106,6 +106,8 @@ pub fn dispatch(state: &AppState, method: &str, url: &str, body: &[u8]) -> ApiRe
         ("GET", ["api", "v1", "settings"]) => ok(settings_json(state)),
         ("PUT", ["api", "v1", "settings"]) => update_settings(state, body),
         ("GET", ["api", "v1", "history"]) => ok(history_json(state)),
+        ("GET", ["api", "v1", "realtime"]) => ok(realtime_json(state)),
+        ("GET", ["api", "v1", "realtime", "events"]) => realtime_events(state, query),
         ("GET", ["api", "v1", "ranshield"]) => ok(ranshield_json(state)),
         ("POST", ["api", "v1", "ranshield", "events"]) => ranshield_events(state, body),
         ("GET", ["api", "v1", "safeos", "status"]) => ok(safeos_status(state)),
@@ -260,8 +262,16 @@ fn health_json(state: &AppState) -> Value {
 }
 
 fn status_json(state: &AppState) -> Value {
-    let cap = capabilities();
-    let realtime_active = cap["real_time_file_blocking"].as_bool().unwrap_or(false);
+    let mut cap = capabilities();
+    // `real_time_file_blocking` stays false: nothing here blocks a write or an execution.
+    // `realtime_file_monitor` is true only while the user-mode monitor is actually alive.
+    let rt = state.realtime();
+    let rt_health = rt.as_ref().map(|m| m.health());
+    let realtime_active = rt_health.as_ref().map_or(false, |h| h.running);
+    let ransomware_degraded = state.ransomware().map_or(false, |b| !b.degraded().is_empty());
+    let realtime_degraded = rt_health.as_ref().map_or(false, |h| !h.degraded.is_empty()) || ransomware_degraded;
+    cap["realtime_file_monitor"] = json!(realtime_active);
+    let realtime_detail = realtime_json(state);
     let latest = state.jobs.list().into_iter().next();
     let (jobs_known, jobs_running) = state.jobs.counts();
     let quarantined = state.vault.list().len();
@@ -271,16 +281,32 @@ fn status_json(state: &AppState) -> Value {
         "product": "Litric Defender",
         "engine": litric_core::ENGINE_NAME,
         "engine_version": litric_core::ENGINE_VERSION,
-        "state": if realtime_active { "protected" } else { "limited" },
-        "state_reason": if realtime_active {
-            "All configured protection components are running."
+        // Never "protected": that word is reserved for a kernel pre-execution sensor.
+        "state": if !realtime_active {
+            "limited"
+        } else if realtime_degraded {
+            "realtime_degraded"
         } else {
+            "realtime_user_mode"
+        },
+        "state_reason": if !realtime_active {
             "On-demand scanning, quarantine and behavioural analysis are active. \
-             Real-time blocking is NOT active: it requires a Microsoft-signed kernel \
-             file-system sensor, which this build does not include. Litric is not \
-             replacing Microsoft Defender on this host."
+             The real-time file monitor is NOT running, and real-time blocking is \
+             unavailable: it requires a Microsoft-signed kernel file-system sensor, \
+             which this build does not include. Litric is not replacing Microsoft \
+             Defender on this host."
+        } else if realtime_degraded {
+            "The user-mode real-time monitor is running but degraded: some files may \
+             not have been scanned (see `realtime.degraded`). It scans files after \
+             they are written and cannot block execution. Keep Microsoft Defender active."
+        } else {
+            "The user-mode real-time monitor is running: files written in the watched \
+             folders are scanned after the write and malicious ones are moved to the \
+             encrypted vault. It cannot block a file before it executes. Keep \
+             Microsoft Defender active."
         },
         "real_time_protection": realtime_active,
+        "realtime": realtime_detail,
         "realtime_requested_by_user": state.realtime_requested,
         // Null when no gate runs. A gate is best-effort containment, not the
         // kernel pre-execution sensor that `state: protected` requires.
@@ -298,6 +324,49 @@ fn status_json(state: &AppState) -> Value {
         "last_scan": latest.map(|j| job_json(&j)),
         "uptime_seconds": state.started.elapsed().as_secs(),
     })
+}
+
+/// Detail of the user-mode real-time monitor, or an explicit "not running" with the reason.
+fn realtime_json(state: &AppState) -> Value {
+    match state.realtime() {
+        Some(m) => {
+            let mut v = m.status_json();
+            // The behavioural layer rides on the same watcher; report it next to the scanner so one
+            // glance shows whether every connected layer is alive, and degrade honestly if not.
+            v["ransomware"] = match state.ransomware() {
+                Some(b) => b.status_json(),
+                None => json!({ "running": false, "note": "ransomware behaviour analysis is not attached to the monitor" }),
+            };
+            if let Some(b) = state.ransomware() {
+                if let Some(list) = v["degraded"].as_array_mut() {
+                    for d in b.degraded() {
+                        list.push(Value::String(format!("ransomware layer: {d}")));
+                    }
+                }
+            }
+            v
+        }
+        None => json!({
+            "running": false,
+            "requested": state.realtime_requested,
+            "error": state.realtime_error(),
+            "note": "The real-time file monitor is not running; only on-demand scans are active.",
+        }),
+    }
+}
+
+/// `GET /api/v1/realtime/events?limit=N` — the tail of the monitor's JSON-lines event log.
+fn realtime_events(state: &AppState, query: &str) -> ApiResponse {
+    let limit = query
+        .split('&')
+        .find_map(|kv| kv.strip_prefix("limit="))
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(50)
+        .clamp(1, 500);
+    match state.realtime() {
+        Some(m) => ok(json!({ "events": m.recent_events(limit) })),
+        None => err(503, "the real-time file monitor is not running"),
+    }
 }
 
 fn threat_db_json(state: &AppState) -> Value {
@@ -971,6 +1040,7 @@ fn ranshield_json(state: &AppState) -> Value {
                 "enforcement": false,
                 "enforcement_reason": "Decisions are produced and returned; applying them \
                     requires the kernel file-system sensor, which is not installed.",
+                "live_feed": state.ransomware().map(|b| b.status_json()),
                 "config": {
                     "window_secs": cfg.window.as_secs(),
                     "write_burst": cfg.write_burst,
@@ -1195,6 +1265,102 @@ rule Eicar.Test {
         assert_eq!(r.body["real_time_protection"], false);
         assert_eq!(r.body["capabilities"]["real_time_file_blocking"], false);
         assert_eq!(r.body["capabilities"]["on_demand_scan"], true);
+        // the monitor is not attached, so the report must say so plainly
+        assert_eq!(r.body["realtime"]["running"], false);
+        assert_eq!(r.body["capabilities"]["realtime_file_monitor"], false);
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    /// End to end through the API: a real file-change notification, the real pipeline and vault,
+    /// and a status that flips only while the monitor is actually alive.
+    #[test]
+    fn status_reports_user_mode_realtime_only_while_the_monitor_runs() {
+        let (state, base) = test_state("realtime");
+        assert_eq!(
+            dispatch(&state, "GET", "/api/v1/realtime/events", b"").status,
+            503,
+            "no monitor attached yet"
+        );
+
+        let watch = base.join("watched");
+        fs::create_dir_all(&watch).unwrap();
+        let rules = r#"
+rule Eicar.Test {
+    meta:
+        description = "EICAR test file"
+        severity = "critical"
+        family = "EICAR-Test"
+    strings:
+        $s = "EICAR-STANDARD-ANTIVIRUS-TEST-FILE"
+    condition:
+        $s
+}
+"#;
+        let rs = RuleSet::compile(parse_rule_file(rules, "test").unwrap()).unwrap();
+        let engine =
+            litric_core::engine::Engine::new(rs, ThreatDb::empty(), EngineConfig::default());
+        let mut cfg = litric_monitor::MonitorConfig::new(vec![watch.clone()]);
+        cfg.debounce = std::time::Duration::from_millis(250);
+        cfg.log_path = Some(state.data_dir.join("realtime-events.jsonl"));
+        cfg.exclude.push(state.data_dir.clone());
+        let monitor = litric_monitor::Monitor::start(
+            Arc::new(litric_pipeline::Pipeline::new(engine)),
+            state.vault.clone(),
+            cfg,
+        )
+        .unwrap();
+        state.set_realtime(Arc::new(monitor));
+
+        let sample = watch.join("invoice.com");
+        fs::write(
+            &sample,
+            b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*",
+        )
+        .unwrap();
+        let started = std::time::Instant::now();
+        while state.vault.list().is_empty() && started.elapsed() < std::time::Duration::from_secs(15) {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        assert_eq!(state.vault.list().len(), 1, "EICAR was not quarantined in real time");
+        assert!(!sample.exists(), "the original must be gone after the verified vault write");
+
+        let r = dispatch(&state, "GET", "/api/v1/status", b"");
+        assert_eq!(r.body["real_time_protection"], true, "{}", r.to_json());
+        assert_eq!(r.body["state"], "realtime_user_mode", "{}", r.to_json());
+        assert_eq!(r.body["capabilities"]["realtime_file_monitor"], true);
+        // still no blocking, no kernel sensor: those must not flip
+        assert_eq!(r.body["capabilities"]["real_time_file_blocking"], false);
+        assert_eq!(r.body["capabilities"]["kernel_sensor"], false);
+        assert_eq!(r.body["realtime"]["stats"]["quarantined"], 1);
+        assert_eq!(r.body["quarantine_entries"], 1);
+
+        let ev = dispatch(&state, "GET", "/api/v1/realtime/events?limit=10", b"");
+        assert_eq!(ev.status, 200);
+        assert!(
+            ev.body["events"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|e| e["event"] == "quarantined"),
+            "{}",
+            ev.to_json()
+        );
+
+        state.realtime().unwrap().shutdown();
+        let r = dispatch(&state, "GET", "/api/v1/status", b"");
+        assert_eq!(r.body["real_time_protection"], false, "a stopped monitor is not protection");
+        assert_eq!(r.body["state"], "limited");
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn a_requested_but_failed_monitor_shows_its_error_instead_of_a_green_state() {
+        let (state, base) = test_state("realtime-error");
+        state.set_realtime_error("no watchable directories".into());
+        let r = dispatch(&state, "GET", "/api/v1/status", b"");
+        assert_eq!(r.body["real_time_protection"], false);
+        assert_eq!(r.body["state"], "limited");
+        assert_eq!(r.body["realtime"]["error"], "no watchable directories");
         let _ = fs::remove_dir_all(&base);
     }
 

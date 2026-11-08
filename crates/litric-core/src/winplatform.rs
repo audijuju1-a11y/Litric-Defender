@@ -389,11 +389,15 @@ pub mod filemeta {
             )
         };
         if handle == INVALID_HANDLE_VALUE {
-            let err = win32_error("FindFirstStreamW");
-            if err.raw_os_error() == Some(ERROR_HANDLE_EOF as i32) {
+            // `win32_error` builds an `io::Error::other`, which carries no OS code, so the code
+            // has to be read here: `ERROR_HANDLE_EOF` means "no streams", not a failure.
+            let code = unsafe { GetLastError() };
+            if code == ERROR_HANDLE_EOF {
                 return Ok(Vec::new());
             }
-            return Err(err);
+            return Err(io::Error::other(format!(
+                "FindFirstStreamW failed with Win32 error {code}"
+            )));
         }
 
         let collected = (|| -> io::Result<Vec<AlternateStream>> {

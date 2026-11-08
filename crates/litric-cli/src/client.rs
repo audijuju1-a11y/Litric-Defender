@@ -493,6 +493,49 @@ pub fn render_status(v: &Value) -> String {
     } else {
         s.push_str("real-time    : NOT ACTIVE\n");
     }
+    if let Some(rt) = v.get("realtime") {
+        if rt["running"].as_bool() == Some(true) {
+            if let Some(mode) = rt["mode"].as_str() {
+                s.push_str(&format!("rt mode      : {mode}\n"));
+            }
+            s.push_str(&format!(
+                "rt activity  : {} director(ies) watched, {} scanned, {} quarantined\n",
+                rt["watched"].as_array().map_or(0, |a| a.len()),
+                rt["stats"]["scanned"].as_u64().unwrap_or(0),
+                rt["stats"]["quarantined"].as_u64().unwrap_or(0)
+            ));
+            let r = &rt["ransomware"];
+            if r["running"].as_bool() == Some(true) {
+                s.push_str(&format!(
+                    "rt ransomware: {} change(s) analysed, {} decoy touch(es), {} incident(s) (alert-only: no process attribution)\n",
+                    r["stats"]["analysed"].as_u64().unwrap_or(0),
+                    r["stats"]["decoy_touches"].as_u64().unwrap_or(0),
+                    r["stats"]["incidents"].as_u64().unwrap_or(0)
+                ));
+                if let Some(list) = r["incidents"].as_array() {
+                    for i in list.iter().take(3) {
+                        s.push_str(&format!(
+                            "rt INCIDENT  : {} (score {}) {}\n",
+                            i["level"].as_str().unwrap_or("?"),
+                            i["score"].as_u64().unwrap_or(0),
+                            i["reasons"][0].as_str().unwrap_or("")
+                        ));
+                    }
+                }
+            } else if r["running"].as_bool() == Some(false) {
+                s.push_str("rt ransomware: NOT ACTIVE\n");
+            }
+            if let Some(list) = rt["degraded"].as_array() {
+                for d in list {
+                    if let Some(text) = d.as_str() {
+                        s.push_str(&format!("rt DEGRADED  : {text}\n"));
+                    }
+                }
+            }
+        } else if let Some(e) = rt["error"].as_str() {
+            s.push_str(&format!("rt error     : {e}\n"));
+        }
+    }
     if let Some(readiness) = v.get("readiness") {
         s.push_str(&format!(
             "production   : {}\n",
@@ -900,6 +943,33 @@ mod tests {
         assert!(!text.contains("ACTIVE\n") | text.contains("NOT ACTIVE"));
         assert!(text.contains("real_time_file_blocking"));
         assert!(!text.contains("state        : protected"));
+    }
+
+    #[test]
+    fn status_shows_the_ransomware_layer_incidents_and_degradation() {
+        let v = json!({
+            "state": "realtime_user_mode",
+            "real_time_protection": true,
+            "realtime": {
+                "running": true,
+                "watched": ["C:\\Users\\a\\Documents"],
+                "stats": { "scanned": 5, "quarantined": 1 },
+                "degraded": ["ransomware layer: 3 file change(s) were dropped"],
+                "ransomware": {
+                    "running": true,
+                    "stats": { "analysed": 40, "decoy_touches": 2, "incidents": 1 },
+                    "incidents": [{ "level": "critical", "score": 100, "reasons": ["wrote to a decoy"] }]
+                }
+            }
+        });
+        let text = render_status(&v);
+        assert!(text.contains("40 change(s) analysed, 2 decoy touch(es), 1 incident(s)"), "{text}");
+        assert!(text.contains("rt INCIDENT  : critical (score 100) wrote to a decoy"), "{text}");
+        assert!(text.contains("rt DEGRADED  : ransomware layer"), "{text}");
+        assert!(text.contains("alert-only"), "{text}");
+
+        let off = json!({ "realtime": { "running": true, "watched": [], "stats": {}, "ransomware": { "running": false } } });
+        assert!(render_status(&off).contains("rt ransomware: NOT ACTIVE"));
     }
 
     #[test]

@@ -59,6 +59,55 @@ impl From<GateArg> for GateMode {
     }
 }
 
+/// CLI spelling of the real-time file monitor switch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+enum RealtimeArg {
+    Off,
+    On,
+}
+
+impl RealtimeArg {
+    fn as_str(self) -> &'static str {
+        match self {
+            RealtimeArg::Off => "off",
+            RealtimeArg::On => "on",
+        }
+    }
+}
+
+/// Tuning for the user-mode real-time file monitor (`--realtime on`).
+#[derive(Debug, Clone, Default, clap::Args)]
+struct RealtimeFlags {
+    /// Extra directory to watch in real time (repeatable). Added to the default
+    /// high-risk folders: every profile's Downloads, Desktop, Documents, Temp
+    /// and Startup, plus the system temp and all-users Startup folders.
+    #[arg(long = "realtime-watch")]
+    watch: Vec<PathBuf>,
+    /// Watch only the `--realtime-watch` directories, not the default folders.
+    #[arg(long = "realtime-no-default-dirs")]
+    no_default_dirs: bool,
+    /// Detect and log only; never move a file into the vault.
+    #[arg(long = "realtime-alert-only")]
+    alert_only: bool,
+    /// Do not scan files that already exist when the monitor starts.
+    #[arg(long = "realtime-no-sweep")]
+    no_sweep: bool,
+    /// Do not feed file events to the RansomShield behaviour engine (the scanner still runs).
+    #[arg(long = "realtime-no-ransomware")]
+    no_ransomware: bool,
+    /// Put decoy files in a "Litric Decoys" folder inside every watched Documents and Desktop
+    /// folder. Any change to a decoy is a conclusive ransomware signal. Off by default because it
+    /// creates files in the user's folders.
+    #[arg(long = "realtime-decoys")]
+    decoys: bool,
+    /// Extra folder to fill with decoy files (repeatable). Must lie inside a watched directory.
+    #[arg(long = "realtime-decoy-dir")]
+    decoy_dirs: Vec<PathBuf>,
+}
+
+/// Upper bound on files the startup sweep will visit before it reports itself truncated.
+const SWEEP_MAX_FILES: u64 = 500_000;
+
 #[derive(Parser)]
 #[command(
     name = "litricd",
@@ -96,6 +145,13 @@ enum Command {
         /// (monitor) or terminate on an exact malicious hash (enforce).
         #[arg(long, value_enum, default_value = "off")]
         process_gate: GateArg,
+        /// User-mode real-time file monitor: scan files after they are written
+        /// and move malicious ones into the encrypted vault. Off for a foreground
+        /// `serve`; the `real-time protection` setting can also request it.
+        #[arg(long, value_enum, default_value = "off")]
+        realtime: RealtimeArg,
+        #[command(flatten)]
+        realtime_flags: RealtimeFlags,
     },
     /// Entry point used by the Service Control Manager. Not for interactive use.
     RunService {
@@ -115,6 +171,12 @@ enum Command {
         /// `--process-gate enforce` to allow hash-matched termination.
         #[arg(long, value_enum, default_value = "monitor")]
         process_gate: GateArg,
+        /// User-mode real-time file monitor. On by default in the installed
+        /// service; it scans after the write and cannot block before execution.
+        #[arg(long, value_enum, default_value = "on")]
+        realtime: RealtimeArg,
+        #[command(flatten)]
+        realtime_flags: RealtimeFlags,
     },
     /// Print (creating if needed) the API token.
     Token {
@@ -141,6 +203,11 @@ enum ServiceAction {
         /// reports but never terminates; `enforce` allows hash-matched kills.
         #[arg(long, value_enum, default_value = "monitor")]
         process_gate: GateArg,
+        /// Real-time file monitor the service starts with (`on` by default).
+        #[arg(long, value_enum, default_value = "on")]
+        realtime: RealtimeArg,
+        #[command(flatten)]
+        realtime_flags: RealtimeFlags,
     },
     /// Stop and delete the service. User data and quarantine are preserved.
     Uninstall {
@@ -163,6 +230,8 @@ fn main() -> ExitCode {
             token_file,
             print_token,
             process_gate,
+            realtime,
+            realtime_flags,
         }) => serve(
             &addr,
             &data_dir,
@@ -171,6 +240,7 @@ fn main() -> ExitCode {
             token_file,
             print_token,
             process_gate,
+            (realtime == RealtimeArg::On).then_some(realtime_flags),
         ),
         Some(Command::RunService {
             addr,
@@ -178,7 +248,16 @@ fn main() -> ExitCode {
             rules,
             db,
             process_gate,
-        }) => run_service(&addr, data_dir, rules, db, process_gate),
+            realtime,
+            realtime_flags,
+        }) => run_service(
+            &addr,
+            data_dir,
+            rules,
+            db,
+            process_gate,
+            (realtime == RealtimeArg::On).then_some(realtime_flags),
+        ),
         Some(Command::Token { token_file }) => match load_or_create_token(&token_file) {
             Ok(t) => {
                 println!("{t}");
@@ -214,6 +293,7 @@ fn start(
     token_file: Option<PathBuf>,
     print_token: bool,
     gate: GateMode,
+    realtime: Option<RealtimeFlags>,
 ) -> Result<Running, Box<dyn std::error::Error + Send + Sync>> {
     // `serve` (local mode) has no installer step that could have hardened this
     // directory, so do it here before the token or vault key exists. When
@@ -246,6 +326,23 @@ fn start(
         state.set_process_gate(Arc::new(handle));
     }
 
+    // The saved "real-time protection" setting can request the monitor even when the
+    // command line did not.
+    let realtime = realtime.or_else(|| state.realtime_requested.then(RealtimeFlags::default));
+    if let Some(flags) = realtime {
+        match start_realtime(&state, rules_dir, db_dir, data_dir, &flags) {
+            Ok((monitor, bridge)) => {
+                state.set_realtime(Arc::new(monitor));
+                if let Some(bridge) = bridge {
+                    state.set_ransomware(Arc::new(bridge));
+                }
+            }
+            // Not fatal: scans and the API still work, and `/status` reports this error
+            // instead of a protection that is not there.
+            Err(e) => state.set_realtime_error(e.to_string()),
+        }
+    }
+
     let handle = server::serve(state.clone(), addr)?;
     let _ = print_token;
     Ok(Running {
@@ -253,6 +350,165 @@ fn start(
         token_path,
         state,
     })
+}
+
+/// Starts the user-mode real-time file monitor on its own pipeline (a second copy of the
+/// same rules and threat database), sharing the service's encrypted quarantine vault.
+fn start_realtime(
+    state: &Arc<AppState>,
+    rules_dir: &Path,
+    db_dir: Option<&Path>,
+    data_dir: &Path,
+    flags: &RealtimeFlags,
+) -> Result<
+    (litric_monitor::Monitor, Option<litric_service::shield::ShieldBridge>),
+    Box<dyn std::error::Error + Send + Sync>,
+> {
+    let engine = build_engine(rules_dir, db_dir)?;
+    let pipeline = litric_pipeline::Pipeline::new(engine)
+        .with_trust_provider(Box::new(litric_pipeline::WinTrustProvider));
+
+    let mut dirs = if flags.no_default_dirs {
+        Vec::new()
+    } else {
+        litric_monitor::default_watch_dirs()
+    };
+    for d in &flags.watch {
+        if !dirs.contains(d) {
+            dirs.push(d.clone());
+        }
+    }
+
+    // The saved `alert_only` setting forbids automatic quarantine everywhere.
+    let settings_alert_only = state
+        .store
+        .lock()
+        .map(|s| s.settings.alert_only)
+        .unwrap_or(false);
+
+    let mut cfg = litric_monitor::MonitorConfig::new(dirs.clone());
+    cfg.auto_quarantine = !(flags.alert_only || settings_alert_only);
+    cfg.log_path = Some(data_dir.join("realtime-events.jsonl"));
+    // The data directory holds the token, settings, history and vault key; none of it is a
+    // scan target and every write there would otherwise be an event.
+    cfg.exclude.push(data_dir.to_path_buf());
+    cfg.throttle = Duration::from_millis(2);
+
+    // The ransomware behaviour layer taps the same OS watcher, so both layers see the same events.
+    let bridge = if flags.no_ransomware {
+        None
+    } else {
+        Some(start_ransomware_bridge(state, &dirs, data_dir, flags)?)
+    };
+    if let Some(b) = &bridge {
+        cfg.observer = Some(b.observer());
+    }
+
+    let monitor = match litric_monitor::Monitor::start(Arc::new(pipeline), state.vault.clone(), cfg) {
+        Ok(m) => m,
+        Err(e) => {
+            if let Some(b) = &bridge {
+                b.shutdown();
+            }
+            return Err(e.into());
+        }
+    };
+    if !flags.no_sweep {
+        monitor.start_sweep(SWEEP_MAX_FILES);
+    }
+    Ok((monitor, bridge))
+}
+
+/// Builds the RansomShield bridge: decoy folders (only when asked), the temp folders that are
+/// ignored unless named explicitly, and the incident log.
+fn start_ransomware_bridge(
+    state: &Arc<AppState>,
+    watched: &[PathBuf],
+    data_dir: &Path,
+    flags: &RealtimeFlags,
+) -> Result<litric_service::shield::ShieldBridge, Box<dyn std::error::Error + Send + Sync>> {
+    use litric_service::shield::{deploy_decoys, ShieldBridge, ShieldScope, DECOY_FOLDER};
+
+    let mut decoy_dirs: Vec<PathBuf> = flags.decoy_dirs.clone();
+    if flags.decoys {
+        for d in watched {
+            let name = d
+                .file_name()
+                .map(|n| n.to_string_lossy().to_ascii_lowercase())
+                .unwrap_or_default();
+            if name == "documents" || name == "desktop" {
+                decoy_dirs.push(d.join(DECOY_FOLDER));
+            }
+        }
+    }
+    decoy_dirs.sort();
+    decoy_dirs.dedup();
+
+    // A decoy nobody watches protects nothing and must not look like it does.
+    let mut problems = Vec::new();
+    for d in &decoy_dirs {
+        let n = litric_monitor::norm_path(&d.to_string_lossy(), cfg!(windows));
+        let covered = watched
+            .iter()
+            .any(|w| litric_monitor::is_under(&n, &litric_monitor::norm_path(&w.to_string_lossy(), cfg!(windows))));
+        if !covered {
+            problems.push(format!("{}: not inside a watched directory, changes there would not be seen", d.display()));
+        }
+    }
+    let (_decoys, created, mut errors) = deploy_decoys(&decoy_dirs);
+    errors.append(&mut problems);
+
+    // Build output, installers and caches write to temp folders constantly; they are not user
+    // documents. They are ignored unless the operator named one with `--realtime-watch`.
+    let mut skip: Vec<PathBuf> = vec![std::env::temp_dir()];
+    for d in watched {
+        let is_temp = d
+            .file_name()
+            .map(|n| n.to_string_lossy().eq_ignore_ascii_case("temp"))
+            .unwrap_or(false);
+        if is_temp && !skip.contains(d) {
+            skip.push(d.clone());
+        }
+    }
+
+    let scope = ShieldScope {
+        skip,
+        explicit: flags.watch.clone(),
+        decoy_dirs,
+    };
+    Ok(ShieldBridge::start(
+        state.ranshield.clone(),
+        scope,
+        created,
+        errors,
+        Some(data_dir.join("ransomware-events.jsonl")),
+    )?)
+}
+
+/// One line describing the monitor for the console / service log.
+fn realtime_summary(state: &AppState) -> String {
+    let ransomware = match state.ransomware() {
+        Some(b) if b.is_running() => ", RansomShield feed ACTIVE (alert-only)",
+        Some(_) => ", RansomShield feed STOPPED",
+        None => ", RansomShield feed off",
+    };
+    match state.realtime() {
+        Some(m) => format!(
+            "ACTIVE, user mode (scans after write, cannot block before execution): {} \
+             director(ies) watched, auto-quarantine {}{}",
+            m.watched().len(),
+            if m.status_json()["auto_quarantine"] == true {
+                "on"
+            } else {
+                "off (alert only)"
+            },
+            ransomware
+        ),
+        None => match state.realtime_error() {
+            Some(e) => format!("NOT ACTIVE: {e}"),
+            None => "NOT ACTIVE (not requested; pass --realtime on)".to_string(),
+        },
+    }
 }
 
 fn serve(
@@ -263,6 +519,7 @@ fn serve(
     token_file: Option<PathBuf>,
     print_token: bool,
     gate: GateArg,
+    realtime: Option<RealtimeFlags>,
 ) -> ExitCode {
     let running = match start(
         addr,
@@ -272,6 +529,7 @@ fn serve(
         token_file,
         print_token,
         gate.into(),
+        realtime,
     ) {
         Ok(r) => r,
         Err(e) => {
@@ -290,7 +548,7 @@ fn serve(
         running.state.engine.db().version(),
         running.state.engine.db().trust
     );
-    println!("real-time   : NOT ACTIVE (no kernel sensor in this build)");
+    println!("real-time   : {}", realtime_summary(&running.state));
     match running.state.process_gate() {
         Some(handle) => println!(
             "proc gate   : {} (best-effort: suspend, scan, resume; hash-only block)",
@@ -311,6 +569,7 @@ fn serve(
             if let Some(gate) = running.state.process_gate() {
                 gate.stop();
             }
+            running.state.shutdown_realtime();
             return ExitCode::from(1);
         }
     }
@@ -323,6 +582,7 @@ fn run_service(
     rules: Option<PathBuf>,
     db: Option<PathBuf>,
     gate: GateArg,
+    realtime: Option<RealtimeFlags>,
 ) -> ExitCode {
     let data_dir = data_dir.unwrap_or_else(winsvc::program_data_dir);
     let rules = rules.unwrap_or_else(exe_rules_dir);
@@ -364,14 +624,15 @@ fn run_service(
     };
 
     say(format!(
-        "Litric Defender service {} starting (data {}, rules {}, db {}, gate {})",
+        "Litric Defender service {} starting (data {}, rules {}, db {}, gate {}, realtime {})",
         litric_core::ENGINE_VERSION,
         data_dir.display(),
         rules.display(),
         db.as_ref()
             .map(|p| p.display().to_string())
             .unwrap_or_else(|| "none".into()),
-        GateMode::from(gate).as_str()
+        GateMode::from(gate).as_str(),
+        if realtime.is_some() { "on" } else { "off" }
     ));
 
     let addr = addr.to_string();
@@ -388,6 +649,7 @@ fn run_service(
                 None,
                 false,
                 gate.into(),
+                realtime.clone(),
             ) {
                 Ok(running) => {
                     say(format!(
@@ -395,7 +657,22 @@ fn run_service(
                         running.handle.addr,
                         running.state.engine.rules().len()
                     ));
+                    say(format!("real-time file monitor: {}", realtime_summary(&running.state)));
                     while !stop.wait_timeout(Duration::from_millis(500)) {}
+                    running.state.shutdown_realtime();
+                    if let Some(monitor) = running.state.realtime() {
+                        let s = monitor.stats();
+                        say(format!(
+                            "real-time monitor stopped: scanned={} malicious={} quarantined={} \
+                             quarantine_failed={} dropped_events={} sweep_visited={}",
+                            s.scanned.load(std::sync::atomic::Ordering::Relaxed),
+                            s.malicious.load(std::sync::atomic::Ordering::Relaxed),
+                            s.quarantined.load(std::sync::atomic::Ordering::Relaxed),
+                            s.quarantine_failed.load(std::sync::atomic::Ordering::Relaxed),
+                            s.events_dropped.load(std::sync::atomic::Ordering::Relaxed),
+                            s.sweep_visited.load(std::sync::atomic::Ordering::Relaxed)
+                        ));
+                    }
                     if let Some(gate) = running.state.process_gate() {
                         gate.stop();
                         say(format!(
@@ -433,8 +710,52 @@ fn service_command(action: ServiceAction) -> ExitCode {
         ServiceAction::Install {
             dry_run,
             process_gate,
+            realtime,
+            realtime_flags,
         } => {
-            let extra = format!("--process-gate {}", process_gate.as_str());
+            let mut extra = format!(
+                "--process-gate {} --realtime {}",
+                process_gate.as_str(),
+                realtime.as_str()
+            );
+            for dir in &realtime_flags.watch {
+                let text = dir.display().to_string();
+                if text.contains('"') {
+                    eprintln!("litricd: --realtime-watch path may not contain a double quote: {text}");
+                    return ExitCode::from(2);
+                }
+                // a trailing backslash would escape the closing quote on the command line
+                extra.push_str(&format!(
+                    " --realtime-watch \"{}\"",
+                    text.trim_end_matches('\\')
+                ));
+            }
+            if realtime_flags.no_default_dirs {
+                extra.push_str(" --realtime-no-default-dirs");
+            }
+            if realtime_flags.alert_only {
+                extra.push_str(" --realtime-alert-only");
+            }
+            if realtime_flags.no_sweep {
+                extra.push_str(" --realtime-no-sweep");
+            }
+            if realtime_flags.no_ransomware {
+                extra.push_str(" --realtime-no-ransomware");
+            }
+            if realtime_flags.decoys {
+                extra.push_str(" --realtime-decoys");
+            }
+            for dir in &realtime_flags.decoy_dirs {
+                let text = dir.display().to_string();
+                if text.contains('"') {
+                    eprintln!("litricd: --realtime-decoy-dir path may not contain a double quote: {text}");
+                    return ExitCode::from(2);
+                }
+                extra.push_str(&format!(
+                    " --realtime-decoy-dir \"{}\"",
+                    text.trim_end_matches('\\')
+                ));
+            }
             let line = match winsvc::installed_command_line_with(&extra) {
                 Ok(l) => l,
                 Err(e) => {
@@ -616,5 +937,81 @@ mod tests {
             gate_of(&["litricd", "serve", "--process-gate", "enforce"]),
             GateArg::Enforce
         );
+    }
+
+    fn realtime_of(args: &[&str]) -> (RealtimeArg, RealtimeFlags) {
+        match Cli::parse_from(args).command {
+            Some(Command::Serve {
+                realtime,
+                realtime_flags,
+                ..
+            })
+            | Some(Command::RunService {
+                realtime,
+                realtime_flags,
+                ..
+            }) => (realtime, realtime_flags),
+            _ => panic!("expected a serve or run-service command"),
+        }
+    }
+
+    /// A foreground `serve` stays quiet unless the operator asks for the monitor.
+    #[test]
+    fn serve_defaults_to_realtime_off() {
+        assert_eq!(realtime_of(&["litricd", "serve"]).0, RealtimeArg::Off);
+    }
+
+    /// The installed service is the product: the monitor is on unless switched off.
+    #[test]
+    fn run_service_defaults_to_realtime_on() {
+        assert_eq!(realtime_of(&["litricd", "run-service"]).0, RealtimeArg::On);
+        assert_eq!(
+            realtime_of(&["litricd", "run-service", "--realtime", "off"]).0,
+            RealtimeArg::Off
+        );
+    }
+
+    #[test]
+    fn realtime_flags_are_parsed_and_default_to_the_safe_behaviour() {
+        let (arg, f) = realtime_of(&["litricd", "serve"]);
+        assert_eq!(arg, RealtimeArg::Off);
+        assert!(f.watch.is_empty() && !f.no_default_dirs && !f.alert_only && !f.no_sweep);
+
+        let (arg, f) = realtime_of(&[
+            "litricd",
+            "serve",
+            "--realtime",
+            "on",
+            "--realtime-watch",
+            "C:\\a",
+            "--realtime-watch",
+            "D:\\b",
+            "--realtime-no-default-dirs",
+            "--realtime-alert-only",
+            "--realtime-no-sweep",
+        ]);
+        assert_eq!(arg, RealtimeArg::On);
+        assert_eq!(f.watch, vec![PathBuf::from("C:\\a"), PathBuf::from("D:\\b")]);
+        assert!(f.no_default_dirs && f.alert_only && f.no_sweep);
+    }
+
+    /// Decoy files are created in the user's folders, so they are opt-in; the behaviour layer
+    /// itself is on whenever the monitor is.
+    #[test]
+    fn ransomware_layer_is_on_with_the_monitor_but_decoys_are_opt_in() {
+        let (_, f) = realtime_of(&["litricd", "run-service"]);
+        assert!(!f.no_ransomware && !f.decoys && f.decoy_dirs.is_empty());
+        let (_, f) = realtime_of(&[
+            "litricd",
+            "serve",
+            "--realtime-no-ransomware",
+            "--realtime-decoys",
+            "--realtime-decoy-dir",
+            "C:\\d1",
+            "--realtime-decoy-dir",
+            "C:\\d2",
+        ]);
+        assert!(f.no_ransomware && f.decoys);
+        assert_eq!(f.decoy_dirs, vec![PathBuf::from("C:\\d1"), PathBuf::from("C:\\d2")]);
     }
 }

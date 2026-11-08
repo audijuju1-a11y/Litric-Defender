@@ -620,6 +620,66 @@ mod tests {
         assert!(b.degraded().iter().any(|d| d.contains("dropped")), "{:?}", b.degraded());
     }
 
+    /// A ransomware-style run with NO decoys, on real OS events: the behaviour alone must be enough.
+    /// Each file is overwritten with random bytes and renamed at once, so the old name is already
+    /// gone when the write is analysed (the race the bridge has to survive). A ransom note is
+    /// dropped too. Only the test's own temp files are touched.
+    #[test]
+    fn a_simulated_ransomware_run_is_detected_from_real_events_without_decoys() {
+        use litric_core::quarantine::QuarantineVault;
+        let root = dir("sim");
+        let watch = root.join("docs");
+        std::fs::create_dir_all(&watch).unwrap();
+        for i in 0..60 {
+            std::fs::write(watch.join(format!("file{i}.docx")), "original document text ".repeat(50)).unwrap();
+        }
+        let b = Arc::new(ShieldBridge::start(shield(), ShieldScope::default(), 0, vec![], None).unwrap());
+        let vault = Arc::new(QuarantineVault::open(&root.join("vault"), &root.join("vault.key")).unwrap());
+        let engine = litric_core::engine::Engine::new(
+            litric_core::rules::RuleSet::compile(vec![]).unwrap(),
+            litric_core::threatdb::ThreatDb::empty(),
+            litric_core::engine::EngineConfig::default(),
+        );
+        let mut cfg = MonitorConfig::new(vec![watch.clone()]);
+        cfg.debounce = Duration::from_millis(50);
+        cfg.observer = Some(b.observer());
+        let m = Monitor::start(Arc::new(litric_pipeline::Pipeline::new(engine)), vault, cfg).unwrap();
+        std::thread::sleep(Duration::from_millis(300));
+
+        for i in 0..60 {
+            let from = watch.join(format!("file{i}.docx"));
+            std::fs::write(&from, random_bytes(1000 + i as u64, 16 * 1024)).unwrap(); // "encrypt"
+            std::fs::rename(&from, watch.join(format!("file{i}.docx.locked"))).unwrap();
+        }
+        std::fs::write(watch.join("README_RESTORE_FILES.txt"), "your files are encrypted (test)").unwrap();
+
+        let start = Instant::now();
+        while b.incidents().is_empty() && start.elapsed() < Duration::from_secs(20) {
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        let inc = b.incidents();
+        assert!(!inc.is_empty(), "ransomware-style run not detected; status: {}", b.status_json());
+        assert_eq!(inc[0].level, "critical");
+        assert_eq!(b.status_json()["incidents"][0]["contained"], false);
+        m.shutdown();
+        b.shutdown();
+    }
+
+    /// Extracting an archive of photos writes many high-entropy files, which is not ransomware.
+    #[test]
+    fn extracting_many_compressed_files_is_not_an_incident() {
+        let d = dir("extract");
+        let b = ShieldBridge::start(shield(), ShieldScope::default(), 0, vec![], None).unwrap();
+        for i in 0..80 {
+            let p = d.join(format!("photo{i}.jpg"));
+            std::fs::write(&p, random_bytes(500 + i as u64, 16 * 1024)).unwrap();
+            feed(&b, ChangeKind::Created, &p);
+        }
+        assert!(b.wait_idle(Duration::from_secs(10)));
+        assert!(b.incidents().is_empty(), "{:?}", b.incidents());
+        b.shutdown();
+    }
+
     /// The whole chain with the real OS watcher: file write -> monitor tap -> bridge -> engine.
     #[test]
     fn a_decoy_written_on_disk_reaches_the_engine_through_the_real_monitor_tap() {

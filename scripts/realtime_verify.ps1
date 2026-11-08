@@ -8,6 +8,8 @@
    3. a benign file is left alone;
    4. /status reports user-mode real-time honestly (monitor alive, but NO blocking, NO kernel sensor);
    5. the vault entry verifies (decrypts and re-hashes);
+   7. a harmless ransomware simulation (random-data overwrite + marker-extension renames of the
+      script's own temp files, no decoy) is detected from behaviour alone;
    6. the ransomware behaviour layer sees the same file events: tampering with a decoy file raises a
       critical incident that is reported as NOT contained (alert-only, no process attribution).
 
@@ -174,6 +176,25 @@ try {
     if ($inc.Count -ge 1 -and $inc[0].level -eq 'critical') { Pass "decoy tampering raised a critical incident: $($inc[0].reasons[0])" } else { Fail "no critical incident after decoy tampering ($($rw | ConvertTo-Json -Compress -Depth 4))" }
     if ($inc.Count -ge 1 -and $inc[0].contained -eq $false) { Pass "the incident honestly reports contained=false (alert only)" } elseif ($inc.Count -ge 1) { Fail "the incident claims containment it cannot provide" }
   }
+  # --- 7. harmless ransomware simulation: behaviour only, no decoy involved -----------------------
+  Log "`n=== ransomware simulation (own temp files only, no decoys) ==="
+  $before = @((Api 'status').realtime.ransomware.incidents).Count
+  $sim = Join-Path $watch 'sim_docs'
+  New-Item -ItemType Directory -Force -Path $sim | Out-Null
+  1..60 | ForEach-Object { [System.IO.File]::WriteAllText((Join-Path $sim "file$_.docx"), ('original text ' * 60)) }
+  Start-Sleep -Seconds 35   # outlast the 30 s incident cooldown so this run is reported on its own
+  $rng = New-Object System.Random 11
+  1..60 | ForEach-Object {
+    $f = Join-Path $sim "file$_.docx"
+    $b = New-Object byte[] 16384; $rng.NextBytes($b)
+    [System.IO.File]::WriteAllBytes($f, $b)                    # "encrypt": random data, high entropy
+    Rename-Item -LiteralPath $f -NewName "file$_.docx.locked"    # marker extension
+  }
+  [System.IO.File]::WriteAllText((Join-Path $sim 'README_RESTORE_FILES.txt'), 'test note - this is a harmless simulation')
+  $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+  do { Start-Sleep -Milliseconds 300; $after = @((Api 'status').realtime.ransomware.incidents).Count } while ((Get-Date) -lt $deadline -and $after -le $before)
+  if ($after -gt $before) { Pass "the simulated ransomware run raised a new critical incident from behaviour alone" } else { Fail "the simulated ransomware run was not detected" }
+
   $st = Api 'status'
   if (@($st.realtime.degraded).Count -eq 0) { Pass "no layer reports degraded protection" } else { Fail "degraded: $($st.realtime.degraded -join '; ')" }
 
